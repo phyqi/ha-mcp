@@ -14,7 +14,6 @@ from pydantic import Field
 
 from ha_mcp._vendor.fastmcp.tools import ToolResult, tool
 from ha_mcp._vendor.fastmcp.utilities.types import Image
-from ha_mcp.client.s3_client import S3Client
 from ha_mcp.dashboard_screenshot.capture import (
     DEFAULT_HEIGHT,
     DEFAULT_WIDTH,
@@ -33,18 +32,15 @@ from ha_mcp.tools.helpers import (
     raise_tool_error,
     register_tool_methods,
 )
+from ha_mcp.tools.storage_base import StorageConsumerMixin
 from ha_mcp.tools.tool_hints import write_hints
 from ha_mcp.tools.tools_camera import _detect_image_format
 
 logger = logging.getLogger(__name__)
 
 
-class StorageTools:
+class StorageTools(StorageConsumerMixin):
     """Tools for capturing and uploading media to object storage."""
-
-    def __init__(self, client: Any, s3_client: S3Client | None = None) -> None:
-        self._client = client
-        self._s3_client = s3_client or S3Client()
 
     async def _capture_camera(
         self,

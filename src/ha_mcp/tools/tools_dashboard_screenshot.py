@@ -13,6 +13,7 @@ capture path (see ``ha_mcp.dashboard_screenshot.capture``).
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import Field
@@ -44,6 +45,7 @@ from ..dashboard_screenshot.paths import (
 from ..errors import ErrorCode, create_error_response
 from .coercion import JSON_STRING_COERCION
 from .helpers import log_tool_usage, raise_tool_error, register_tool_methods
+from .storage_base import StorageConsumerMixin
 from .tool_hints import read_only_hints
 
 logger = logging.getLogger(__name__)
@@ -55,9 +57,16 @@ def _package_screenshot_result(
     target: DashboardRenderTarget,
     capture_failures: list[dict[str, Any]],
     capture_warnings: list[str],
+    storage_urls: list[str] | None = None,
 ) -> ToolResult:
     """Build the standalone native-image result with structured failures."""
     try:
+        screenshots_meta = dashboard_screenshot_metadata(captures, target.render_path)
+        if storage_urls:
+            for idx, item in enumerate(screenshots_meta):
+                if idx < len(storage_urls):
+                    item["url"] = storage_urls[idx]
+
         structured_content: dict[str, Any] = {
             "success": True,
             "url_path": target.url_path,
@@ -66,8 +75,11 @@ def _package_screenshot_result(
             "render_path": target.render_path,
             "stable_addressing": target.stable,
             "screenshot_count": len(captures),
-            "screenshots": dashboard_screenshot_metadata(captures, target.render_path),
+            "screenshots": screenshots_meta,
         }
+        if storage_urls:
+            structured_content["storage_urls"] = storage_urls
+            structured_content["url"] = storage_urls[0]
         if capture_failures:
             structured_content["partial"] = True
             structured_content["screenshot_failures"] = capture_failures
@@ -101,11 +113,44 @@ def _package_screenshot_result(
         raise_tool_error(error_payload)
 
 
-class DashboardScreenshotTools:
+class DashboardScreenshotTools(StorageConsumerMixin):
     """Opt-in dashboard screenshot tool (gated by enable_dashboard_screenshot)."""
 
-    def __init__(self, client: Any) -> None:
-        self._client = client
+    async def _upload_screenshots_to_storage(
+        self,
+        render_path: str,
+        captures: list[Any],
+    ) -> list[str]:
+        """Upload captured screenshots to storage when configured."""
+        if not self._s3_client.is_configured:
+            return []
+        urls: list[str] = []
+        now_utc = datetime.now(UTC)
+        timestamp_str = now_utc.strftime("%Y%m%d_%H%M%S")
+        clean_prefix = self._s3_client.default_prefix.strip().strip("/")
+        safe_path = render_path.replace("/", "_").replace(".", "_")
+        for idx, cap in enumerate(captures):
+            suffix = f"_{idx}" if len(captures) > 1 else ""
+            filename = (
+                f"dashboard_{safe_path}{suffix}_{timestamp_str}.{cap.image_format}"
+            )
+            object_name = f"{clean_prefix}/{filename}" if clean_prefix else filename
+            try:
+                await self._s3_client.upload_bytes(
+                    cap.data,
+                    object_name,
+                    content_type=cap.mime_type,
+                )
+                url = self._s3_client.generate_presigned_url(object_name)
+                urls.append(url)
+                logger.info("Uploaded dashboard screenshot to storage: %s", url)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to upload dashboard screenshot %s to storage: %s",
+                    object_name,
+                    exc,
+                )
+        return urls
 
     @tool(
         name="ha_get_dashboard_screenshot",
@@ -288,11 +333,15 @@ class DashboardScreenshotTools:
                     context={"dashboard_path": target.render_path},
                 )
             )
+        storage_urls = await self._upload_screenshots_to_storage(
+            target.render_path, captures
+        )
         return _package_screenshot_result(
             captures=captures,
             target=target,
             capture_failures=capture_failures,
             capture_warnings=capture_warnings,
+            storage_urls=storage_urls,
         )
 
 

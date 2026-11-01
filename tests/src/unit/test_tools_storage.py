@@ -1,5 +1,6 @@
 """Unit tests for StorageTools and ha_upload_capture."""
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -185,3 +186,47 @@ async def test_dashboard_validation_failures(
     # Missing dashboard_path
     with pytest.raises(ToolError, match="dashboard_path is required"):
         await tools.ha_upload_capture(source="dashboard", dashboard_path="")
+
+
+@pytest.mark.asyncio
+async def test_dashboard_screenshot_auto_uploads_when_storage_configured(
+    monkeypatch: pytest.MonkeyPatch, mock_client: MagicMock, mock_s3: MagicMock
+) -> None:
+    from ha_mcp.dashboard_screenshot.paths import DashboardRenderTarget
+    from ha_mcp.tools import tools_dashboard_screenshot as mod
+    from tests.src.unit.test_dashboard_screenshot import _fake_dashboard_capture
+
+    async def resolve(*_a: object, **_kw: object) -> DashboardRenderTarget:
+        return DashboardRenderTarget(
+            url_path="wall-panel",
+            view_path=None,
+            render_path="wall-panel",
+            view_index=None,
+            stable=True,
+        )
+
+    fake_capture = _fake_dashboard_capture()
+
+    async def capture(*_a: object, **_kw: object) -> list[Any]:
+        return [fake_capture]
+
+    monkeypatch.setattr(mod, "resolve_dashboard_render_target", resolve)
+    monkeypatch.setattr(mod, "capture_dashboard_images", capture)
+
+    mock_s3.is_configured = True
+    mock_s3.default_prefix = "captures"
+    mock_s3.upload_bytes = AsyncMock(return_value={"success": True})
+    mock_s3.generate_presigned_url = MagicMock(
+        return_value="https://minio.lan:9000/captures/dashboard_wall-panel.png"
+    )
+
+    tools = mod.DashboardScreenshotTools(client=mock_client, s3_client=mock_s3)
+    result = await tools.ha_get_dashboard_screenshot(url_path="wall-panel")
+
+    mock_s3.upload_bytes.assert_called_once()
+    assert result.structured_content["url"] == (
+        "https://minio.lan:9000/captures/dashboard_wall-panel.png"
+    )
+    assert result.structured_content["screenshots"][0]["url"] == (
+        "https://minio.lan:9000/captures/dashboard_wall-panel.png"
+    )

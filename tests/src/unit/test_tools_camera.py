@@ -427,3 +427,97 @@ class TestHaGetCameraImage:
         mock_client.httpx_client.get.assert_called_once_with(
             "/camera_proxy/camera.front_door", params={"height": "600"}
         )
+
+    @pytest.mark.asyncio
+    async def test_auto_upload_to_storage_when_configured(self, mock_client):
+        """When S3/MinIO is configured, snapshot is uploaded and URL is in text."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b"\xff\xd8\xff\xe0"
+        mock_response.headers = {"content-type": "image/jpeg"}
+        mock_client.httpx_client.get = AsyncMock(return_value=mock_response)
+
+        mock_s3 = MagicMock()
+        mock_s3.is_configured = True
+        mock_s3.default_prefix = "captures"
+        mock_s3.upload_bytes = AsyncMock(return_value={"success": True})
+        mock_s3.generate_presigned_url = MagicMock(
+            return_value="https://minio.lan:9000/captures/camera_front_door.jpeg"
+        )
+
+        tools = CameraTools(mock_client, s3_client=mock_s3)
+        text, image = await tools.ha_get_camera_image(entity_id="camera.front_door")
+
+        assert image.data == b"\xff\xd8\xff\xe0"
+        mock_s3.upload_bytes.assert_called_once()
+        call_args = mock_s3.upload_bytes.call_args
+        assert call_args[0][0] == b"\xff\xd8\xff\xe0"
+        assert call_args[0][1].startswith("captures/camera_front_door_")
+        assert call_args[1]["content_type"] == "image/jpeg"
+        assert "URL: https://minio.lan:9000/captures/camera_front_door.jpeg." in text
+
+    @pytest.mark.asyncio
+    async def test_upload_disabled_explicitly(self, mock_client):
+        """When upload_to_storage=False, no upload happens even if storage is configured."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b"\xff\xd8\xff\xe0"
+        mock_response.headers = {"content-type": "image/jpeg"}
+        mock_client.httpx_client.get = AsyncMock(return_value=mock_response)
+
+        mock_s3 = MagicMock()
+        mock_s3.is_configured = True
+        mock_s3.default_prefix = "captures"
+        mock_s3.upload_bytes = AsyncMock()
+
+        tools = CameraTools(mock_client, s3_client=mock_s3)
+        text, _ = await tools.ha_get_camera_image(
+            entity_id="camera.front_door", upload_to_storage=False
+        )
+
+        mock_s3.upload_bytes.assert_not_called()
+        assert "URL:" not in text
+
+    @pytest.mark.asyncio
+    async def test_upload_with_custom_storage_prefix(self, mock_client):
+        """Custom storage_prefix overrides the default prefix."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b"\xff\xd8\xff\xe0"
+        mock_response.headers = {"content-type": "image/jpeg"}
+        mock_client.httpx_client.get = AsyncMock(return_value=mock_response)
+
+        mock_s3 = MagicMock()
+        mock_s3.is_configured = True
+        mock_s3.default_prefix = "captures"
+        mock_s3.upload_bytes = AsyncMock(return_value={"success": True})
+        mock_s3.generate_presigned_url = MagicMock(return_value="https://minio/custom.jpg")
+
+        tools = CameraTools(mock_client, s3_client=mock_s3)
+        await tools.ha_get_camera_image(
+            entity_id="camera.front_door", storage_prefix="custom/cctv"
+        )
+
+        mock_s3.upload_bytes.assert_called_once()
+        object_name = mock_s3.upload_bytes.call_args[0][1]
+        assert object_name.startswith("custom/cctv/camera_front_door_")
+
+    @pytest.mark.asyncio
+    async def test_upload_failure_does_not_block_snapshot(self, mock_client):
+        """Storage upload failure logs warning and reports error in text without raising."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b"\xff\xd8\xff\xe0"
+        mock_response.headers = {"content-type": "image/jpeg"}
+        mock_client.httpx_client.get = AsyncMock(return_value=mock_response)
+
+        mock_s3 = MagicMock()
+        mock_s3.is_configured = True
+        mock_s3.default_prefix = "captures"
+        mock_s3.upload_bytes = AsyncMock(side_effect=RuntimeError("MinIO connection timeout"))
+
+        tools = CameraTools(mock_client, s3_client=mock_s3)
+        text, image = await tools.ha_get_camera_image(entity_id="camera.front_door")
+
+        assert image.data == b"\xff\xd8\xff\xe0"
+        assert "(Storage upload failed: MinIO connection timeout)" in text

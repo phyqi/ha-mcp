@@ -30,6 +30,7 @@ from .helpers import (
     register_tool_methods,
 )
 from .response_helpers import fetch_ha_timezone, resolve_local_timezone
+from .storage_base import StorageConsumerMixin
 from .tool_hints import read_only_hints
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,8 @@ def _snapshot_info_text(
     image_size: tuple[int, int] | None,
     retrieved: datetime,
     timezone_fallback: bool = False,
+    url: str | None = None,
+    storage_error: str | None = None,
 ) -> str:
     """Build the text half of the camera image response.
 
@@ -71,6 +74,7 @@ def _snapshot_info_text(
     when the snapshot was retrieved, in Home Assistant local time with
     UTC offset. When the timezone lookup fell back to UTC, the text says
     so, so the label cannot be mistaken for a genuine UTC install.
+    When uploaded to object storage, the accessible URL is included.
 
     The block deliberately describes only the bytes that were served —
     never the entity's name or state. Home Assistant can mark an entity
@@ -84,19 +88,55 @@ def _snapshot_info_text(
     else:
         width, height = image_size
         detail = f"{prefix}, {width}x{height})"
+    url_text = f" URL: {url}." if url else ""
+    error_text = f" (Storage upload failed: {storage_error})" if storage_error else ""
     note = (
         " (UTC — could not determine the Home Assistant timezone)"
         if timezone_fallback
         else ""
     )
-    return f"{detail}. Retrieved: {retrieved:%Y-%m-%d %H:%M:%S %:z}{note}"
+    return f"{detail}.{url_text}{error_text} Retrieved: {retrieved:%Y-%m-%d %H:%M:%S %:z}{note}"
 
 
-class CameraTools:
+class CameraTools(StorageConsumerMixin):
     """Camera snapshot retrieval tools."""
 
-    def __init__(self, client: Any) -> None:
-        self._client = client
+    async def _upload_to_storage(
+        self,
+        entity_id: str,
+        content: bytes,
+        image_format: str,
+        retrieved_at: datetime,
+        storage_prefix: str | None = None,
+    ) -> tuple[str | None, str | None]:
+        """Upload snapshot bytes to MinIO/S3 storage. Returns (url, error_message)."""
+        if not self._s3_client.is_configured:
+            return None, "Storage is not configured"
+        try:
+            timestamp_str = retrieved_at.strftime("%Y%m%d_%H%M%S")
+            prefix = (
+                storage_prefix
+                if storage_prefix is not None
+                else self._s3_client.default_prefix
+            )
+            clean_prefix = prefix.strip().strip("/") if prefix else ""
+            safe_entity = entity_id.replace(".", "_")
+            filename = f"{safe_entity}_{timestamp_str}.{image_format}"
+            object_name = f"{clean_prefix}/{filename}" if clean_prefix else filename
+
+            await self._s3_client.upload_bytes(
+                content,
+                object_name,
+                content_type=f"image/{image_format}",
+            )
+            url = self._s3_client.generate_presigned_url(object_name)
+            logger.info("Uploaded camera snapshot %s to storage: %s", entity_id, url)
+            return url, None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to upload camera snapshot %s to storage: %s", entity_id, exc
+            )
+            return None, str(exc)
 
     @staticmethod
     def _check_response(response: Any, entity_id: str) -> None:
@@ -165,6 +205,20 @@ class CameraTools:
                 "the camera serves JPEG."
             ),
         ] = None,
+        upload_to_storage: Annotated[
+            bool | None,
+            Field(
+                description="Upload the snapshot to MinIO / S3 object storage. "
+                "If None (default), automatically uploads when storage is configured in settings."
+            ),
+        ] = None,
+        storage_prefix: Annotated[
+            str | None,
+            Field(
+                description="Custom folder/prefix in the storage bucket for this snapshot. "
+                "Defaults to configured MINIO_PREFIX (default: 'captures')."
+            ),
+        ] = None,
     ) -> tuple[str, Image]:
         """Get a snapshot image from a Home Assistant camera entity.
 
@@ -174,6 +228,10 @@ class CameraTools:
         Assistant serves (JPEG, PNG, or GIF), alongside a short text
         block stating the served snapshot's size and retrieval time in
         Home Assistant local time.
+
+        When MinIO / S3 object storage is configured in settings, the
+        snapshot is automatically uploaded to the bucket and its accessible
+        URL is returned in the text info block.
 
         Do not use it to inspect the camera's state or attributes — use
         ha_search or ha_get_state for those; it returns an image, not
@@ -242,6 +300,23 @@ class CameraTools:
                 f"({len(response.content)} bytes, format={image_format})"
             )
 
+            # Upload to object storage if configured (or requested)
+            uploaded_url: str | None = None
+            storage_error: str | None = None
+            should_upload = (
+                upload_to_storage
+                if upload_to_storage is not None
+                else self._s3_client.is_configured
+            )
+            if should_upload:
+                uploaded_url, storage_error = await self._upload_to_storage(
+                    entity_id=entity_id,
+                    content=response.content,
+                    image_format=image_format,
+                    retrieved_at=retrieved_at,
+                    storage_prefix=storage_prefix,
+                )
+
             # Return the info text plus a FastMCP Image object (auto-converted
             # to MCP TextContent and ImageContent, in this order)
             return (
@@ -250,6 +325,8 @@ class CameraTools:
                     image_size,
                     retrieved_at.astimezone(local_tz),
                     timezone_fallback,
+                    url=uploaded_url,
+                    storage_error=storage_error,
                 ),
                 Image(data=response.content, format=image_format),
             )
