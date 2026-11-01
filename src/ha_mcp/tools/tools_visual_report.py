@@ -26,6 +26,7 @@ from ha_mcp.tools.storage_base import StorageConsumerMixin
 from ha_mcp.tools.tool_hints import read_only_hints
 from ha_mcp.visual_reports.card_drawer import render_status_card
 from ha_mcp.visual_reports.chart_drawer import render_sensor_chart
+from ha_mcp.visual_reports.infographic_drawer import render_infographic
 
 logger = logging.getLogger(__name__)
 
@@ -333,6 +334,139 @@ class VisualReportTools(StorageConsumerMixin):
             content=[
                 Image(data=png_bytes, format="png"),
                 f"Generated status card '{title}' with {len(items)} metric(s). "
+                + (f"URL (valid {expires_in_seconds // 60}m): {storage_url}" if storage_url else ""),
+            ],
+            structured_content=structured_content,
+        )
+
+    @tool(
+        name="ha_generate_infographic",
+        tags={"Control & State", "Media & Storage"},
+        annotations=read_only_hints("Generate Status Infographic Image", open_world=False),
+    )
+    @log_tool_usage
+    async def ha_generate_infographic(
+        self,
+        title: Annotated[
+            str,
+            Field(description="Main infographic title (e.g. 'RINGKASAN STATUS RUMAH' or 'LAPORAN ENERGI & SUHU')."),
+        ] = "INFOGRAFIS STATUS RUMAH",
+        subtitle: Annotated[
+            str | None,
+            Field(description="Optional subtitle or time descriptor."),
+        ] = None,
+        kpi_highlights: Annotated[
+            str | list[dict[str, Any]] | None,
+            JSON_STRING_COERCION,
+            Field(
+                description="List of 2-4 highlight tiles with 'label', 'value', 'badge', and 'status' ('ok', 'info', 'warning', 'error')."
+            ),
+        ] = None,
+        progress_bars: Annotated[
+            str | list[dict[str, Any]] | None,
+            JSON_STRING_COERCION,
+            Field(
+                description="List of gauge/progress bars with 'label', 'value_text', 'percent' (0-100), and 'status'."
+            ),
+        ] = None,
+        sections: Annotated[
+            str | list[dict[str, Any]] | None,
+            JSON_STRING_COERCION,
+            Field(
+                description="Grouped device categories with 'category' (title) and 'items' (list of {'name', 'state', 'status'})."
+            ),
+        ] = None,
+        summary: Annotated[
+            str | None,
+            Field(description="Briefing notes or AI analysis displayed in the bottom callout."),
+        ] = None,
+        camera_entity_id: Annotated[
+            str | None,
+            Field(description="Optional camera entity ID (e.g. 'camera.front_door') to display snapshot hero preview."),
+        ] = None,
+        storage_prefix: Annotated[
+            str,
+            Field(description="Directory/prefix path in MinIO storage."),
+        ] = "reports/infographics",
+        expires_in_seconds: Annotated[
+            int,
+            Field(description="Presigned URL expiration in seconds (default: 3600 = 1 hour)."),
+        ] = _DEFAULT_RETENTION_SECONDS,
+        upload_to_storage: Annotated[
+            bool,
+            Field(description="Whether to upload to MinIO storage if configured."),
+        ] = True,
+    ) -> ToolResult:
+        """Generate a rich, visual home status infographic with KPI metric tiles, gauge bars, grouped device sections, and optional camera snapshot."""
+        def _parse_list(val: Any) -> list[dict[str, Any]]:
+            if not val:
+                return []
+            if isinstance(val, str):
+                try:
+                    res = json.loads(val)
+                    return res if isinstance(res, list) else []
+                except Exception:  # noqa: BLE001
+                    return []
+            if isinstance(val, list):
+                return val
+            return []
+
+        parsed_kpis = _parse_list(kpi_highlights)
+        parsed_bars = _parse_list(progress_bars)
+        parsed_secs = _parse_list(sections)
+
+        cam_bytes: bytes | None = None
+        if camera_entity_id:
+            cam_bytes = await self._fetch_camera_snapshot(camera_entity_id)
+
+        now = datetime.now(UTC)
+        sub = subtitle or now.strftime("%A, %d %B %Y • %H:%M UTC")
+
+        png_bytes = render_infographic(
+            title=title,
+            subtitle=sub,
+            kpi_highlights=parsed_kpis,
+            progress_bars=parsed_bars,
+            sections=parsed_secs,
+            summary=summary,
+            camera_image_bytes=cam_bytes,
+        )
+
+        storage_url: str | None = None
+        if upload_to_storage and self._s3_client.is_configured:
+            timestamp_str = now.strftime("%Y%m%d_%H%M%S")
+            object_name = f"infographic_{timestamp_str}.png"
+            prefix_clean = storage_prefix.strip().strip("/")
+            full_key = f"{prefix_clean}/{object_name}" if prefix_clean else object_name
+
+            await self._s3_client.upload_bytes(
+                png_bytes, full_key, content_type="image/png"
+            )
+            storage_url = self._s3_client.generate_presigned_url(
+                full_key, expires_in=expires_in_seconds
+            )
+            # Prune old infographic images (> expires_in_seconds) to enforce storage retention
+            await self._s3_client.cleanup_expired_objects(
+                prefix=prefix_clean, max_age_seconds=expires_in_seconds
+            )
+
+        structured_content: dict[str, Any] = {
+            "success": True,
+            "title": title,
+            "kpis_count": len(parsed_kpis),
+            "bars_count": len(parsed_bars),
+            "sections_count": len(parsed_secs),
+            "has_camera_snapshot": bool(cam_bytes),
+            "url": storage_url,
+            "expires_in_seconds": expires_in_seconds if storage_url else None,
+            "size_bytes": len(png_bytes),
+            "timestamp": now.isoformat(),
+        }
+
+        return ToolResult(
+            content=[
+                Image(data=png_bytes, format="png"),
+                f"Generated infographic '{title}'. "
                 + (f"URL (valid {expires_in_seconds // 60}m): {storage_url}" if storage_url else ""),
             ],
             structured_content=structured_content,

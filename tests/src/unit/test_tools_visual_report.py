@@ -16,6 +16,7 @@ from ha_mcp.client.s3_client import S3Client
 from ha_mcp.tools.tools_visual_report import VisualReportTools
 from ha_mcp.visual_reports.card_drawer import render_status_card
 from ha_mcp.visual_reports.chart_drawer import render_sensor_chart
+from ha_mcp.visual_reports.infographic_drawer import render_infographic
 
 
 def _create_sample_snapshot() -> bytes:
@@ -209,4 +210,79 @@ async def test_ha_generate_status_card_tool():
     assert mock_s3.upload_bytes.call_count == 1
     mock_s3.cleanup_expired_objects.assert_called_once_with(
         prefix="reports/cards", max_age_seconds=3600
+    )
+
+
+def test_render_infographic_success():
+    """Verify render_infographic produces valid PNG bytes with KPI and sections."""
+    sample_cam = _create_sample_snapshot()
+    kpis = [
+        {"label": "Suhu Rata-rata", "value": "24.2 °C", "badge": "SEJUK", "status": "ok"},
+        {"label": "Beban Listrik", "value": "520 W", "badge": "NORMAL", "status": "ok"},
+    ]
+    bars = [
+        {"label": "Daya Listrik (Watt)", "value_text": "520W / 2200W (24%)", "percent": 23.6, "status": "info"}
+    ]
+    sections = [
+        {
+            "category": "Keamanan & Pintu",
+            "items": [
+                {"name": "Pintu Utama", "state": "Terkunci", "status": "locked"},
+                {"name": "Pagar Depan", "state": "Tertutup", "status": "closed"},
+            ],
+        }
+    ]
+
+    png = render_infographic(
+        title="LAPORAN STATUS RUMAH",
+        kpi_highlights=kpis,
+        progress_bars=bars,
+        sections=sections,
+        summary="Semua sistem berjalan normal.",
+        camera_image_bytes=sample_cam,
+    )
+
+    assert isinstance(png, bytes)
+    assert png.startswith(b"\x89PNG")
+    img = PILImage.open(io.BytesIO(png))
+    assert img.width == 1000
+    assert img.height >= 500
+
+
+@pytest.mark.anyio
+async def test_ha_generate_infographic_tool():
+    """Test ha_generate_infographic tool execution with mock S3 and HA."""
+    mock_ha_client = MagicMock()
+    mock_s3 = MagicMock(spec=S3Client)
+    mock_s3.is_configured = True
+    mock_s3.upload_bytes = AsyncMock(return_value={"etag": "mock-etag"})
+    mock_s3.generate_presigned_url = MagicMock(
+        return_value="https://minio.local:9000/captures/reports/infographics/info_123.png?token=xyz"
+    )
+    mock_s3.cleanup_expired_objects = AsyncMock(return_value=1)
+
+    tools = VisualReportTools(mock_ha_client, mock_s3)
+    result = await tools.ha_generate_infographic(
+        title="DAILY HOME BRIEFING",
+        kpi_highlights=[{"label": "Suhu", "value": "24°C", "badge": "OK", "status": "ok"}],
+        progress_bars=[{"label": "Beban Listrik", "value_text": "500W", "percent": 25.0, "status": "ok"}],
+        summary="Semua kondisi aman.",
+        expires_in_seconds=3600,
+    )
+
+    assert isinstance(result, ToolResult)
+    assert len(result.content) == 2
+    assert result.content[0].type == "image"
+    assert result.content[0].mime_type == "image/png"
+
+    struct = result.structured_content
+    assert struct["success"] is True
+    assert struct["kpis_count"] == 1
+    assert struct["bars_count"] == 1
+    assert struct["expires_in_seconds"] == 3600
+    assert struct["url"].startswith("https://minio.local:9000")
+
+    mock_s3.upload_bytes.assert_called_once()
+    mock_s3.cleanup_expired_objects.assert_called_once_with(
+        prefix="reports/infographics", max_age_seconds=3600
     )
