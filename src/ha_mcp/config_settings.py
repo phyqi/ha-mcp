@@ -268,6 +268,71 @@ class Settings(BaseSettings):
         str, Setting(surface="advanced", section="operations")
     ] = Field("", alias="HAMCP_DASHBOARD_SCREENSHOT_ENGINE_URL")
 
+    # MinIO / S3 Object Storage configuration for image and capture uploads
+    minio_endpoint: Annotated[
+        str,
+        Setting(
+            surface="advanced",
+            section="operations",
+            app=_ALL_FLAVORS,
+        ),
+    ] = Field("", alias="MINIO_ENDPOINT")
+    minio_access_key: Annotated[
+        str,
+        Setting(
+            surface="advanced",
+            section="operations",
+            app=_ALL_FLAVORS,
+        ),
+    ] = Field("", alias="MINIO_ACCESS_KEY")
+    minio_secret_key: Annotated[
+        str,
+        Setting(
+            surface="advanced",
+            section="operations",
+            app=_ALL_FLAVORS,
+        ),
+    ] = Field("", alias="MINIO_SECRET_KEY")
+    minio_bucket: Annotated[
+        str,
+        Setting(
+            surface="advanced",
+            section="operations",
+            app=_ALL_FLAVORS,
+        ),
+    ] = Field("", alias="MINIO_BUCKET")
+    minio_prefix: Annotated[
+        str,
+        Setting(
+            surface="advanced",
+            section="operations",
+            app=_ALL_FLAVORS,
+        ),
+    ] = Field("captures", alias="MINIO_PREFIX")
+    minio_region: Annotated[
+        str,
+        Setting(
+            surface="advanced",
+            section="operations",
+        ),
+    ] = Field("us-east-1", alias="MINIO_REGION")
+    minio_secure: Annotated[
+        bool,
+        Setting(
+            surface="advanced",
+            section="operations",
+            app=_ALL_FLAVORS,
+        ),
+    ] = Field(False, alias="MINIO_SECURE")
+    minio_public_url: Annotated[
+        str,
+        Setting(
+            surface="advanced",
+            section="operations",
+            app=_ALL_FLAVORS,
+        ),
+    ] = Field("", alias="MINIO_PUBLIC_URL")
+
     # Tool filtering - comma-separated list of module names to enable
     # Special values: "all" (default), "automation" (automation-related tools only)
     # Examples: "tools_config_automations,tools_config_scripts,tools_traces"

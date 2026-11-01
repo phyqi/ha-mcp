@@ -21,6 +21,69 @@
     "always": true
   },
   {
+    "key": "minio_endpoint",
+    "env": "MINIO_ENDPOINT",
+    "type": "str",
+    "default": "",
+    "range": null,
+    "choices": null,
+    "always": true
+  },
+  {
+    "key": "minio_access_key",
+    "env": "MINIO_ACCESS_KEY",
+    "type": "str",
+    "default": "",
+    "range": null,
+    "choices": null,
+    "always": true
+  },
+  {
+    "key": "minio_secret_key",
+    "env": "MINIO_SECRET_KEY",
+    "type": "str",
+    "default": "",
+    "range": null,
+    "choices": null,
+    "always": true
+  },
+  {
+    "key": "minio_bucket",
+    "env": "MINIO_BUCKET",
+    "type": "str",
+    "default": "",
+    "range": null,
+    "choices": null,
+    "always": true
+  },
+  {
+    "key": "minio_prefix",
+    "env": "MINIO_PREFIX",
+    "type": "str",
+    "default": "captures",
+    "range": null,
+    "choices": null,
+    "always": true
+  },
+  {
+    "key": "minio_secure",
+    "env": "MINIO_SECURE",
+    "type": "bool",
+    "default": false,
+    "range": null,
+    "choices": null,
+    "always": true
+  },
+  {
+    "key": "minio_public_url",
+    "env": "MINIO_PUBLIC_URL",
+    "type": "str",
+    "default": "",
+    "range": null,
+    "choices": null,
+    "always": true
+  },
+  {
     "key": "custom_instructions",
     "env": "HAMCP_CUSTOM_INSTRUCTIONS",
     "type": "str",

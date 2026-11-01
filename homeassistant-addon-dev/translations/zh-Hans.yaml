@@ -10,6 +10,30 @@ configuration:
     name: Home Assistant 工具并发数
     description: 跨所有会话的外部 Home Assistant 工具调用的可选限制。内部 REST、WebSocket 和每个工具的分发并发性保持不变。0
       表示保持无限制行为。等待容量的调用将在 60 秒后失败。 范围 0–32。
+  minio_endpoint:
+    name: MinIO / S3 endpoint
+    description: Endpoint for MinIO or S3-compatible storage (e.g. minio.local:9000
+      or s3.amazonaws.com). Leave empty to disable.
+  minio_access_key:
+    name: MinIO / S3 access key
+    description: Access key ID for MinIO / S3 authentication.
+  minio_secret_key:
+    name: MinIO / S3 secret key
+    description: Secret access key for MinIO / S3 authentication.
+  minio_bucket:
+    name: MinIO / S3 default bucket
+    description: Default bucket name for uploaded captures.
+  minio_prefix:
+    name: MinIO / S3 directory prefix
+    description: Directory or folder path prefix inside the bucket where captures
+      are saved (e.g. 'captures' or 'security/cctv'). Leave empty for bucket root.
+  minio_secure:
+    name: MinIO / S3 secure (HTTPS)
+    description: Use HTTPS (SSL/TLS) when connecting to the MinIO/S3 endpoint.
+  minio_public_url:
+    name: MinIO / S3 public base URL
+    description: Optional external public URL used to construct client-accessible
+      links when MinIO is behind an ingress or reverse proxy.
   custom_instructions:
     name: 自定义服务器指令
     description: 作为 MCP 服务器指令的一部分发送给连接的每个 AI 助手的文本——例如家庭便签的存放位置以及何时阅读或更新它们。也是使用此工具集的

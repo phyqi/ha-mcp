@@ -548,6 +548,54 @@ Limits how many Home Assistant tool calls run at the same time across all sessio
 
 A limit lets constrained installs queue tool calls instead of running them all at once. Requires app restart to take effect.
 
+### minio_endpoint
+
+**Default:** `""`
+
+Endpoint URL or host for MinIO or S3-compatible object storage (e.g. `minio.local:9000` or `s3.amazonaws.com`). Used by `ha_upload_capture` to store camera and dashboard captures.
+
+### minio_access_key
+
+**Default:** `""`
+
+Access key ID for MinIO / S3 authentication.
+
+### minio_secret_key
+
+**Default:** `""`
+
+Secret access key for MinIO / S3 authentication.
+
+### minio_bucket
+
+**Default:** `""`
+
+Default bucket name where captures are uploaded.
+
+### minio_prefix
+
+**Default:** `captures`
+
+Folder or directory path prefix inside the bucket where captures are stored (e.g. `captures` or `surveillance/cctv`). Leave empty to store directly at the root of the bucket.
+
+### minio_region
+
+**Default:** `us-east-1`
+
+Region name for AWS SigV4 signing.
+
+### minio_secure
+
+**Default:** `false`
+
+Whether to use HTTPS (SSL/TLS) when connecting to the MinIO / S3 endpoint.
+
+### minio_public_url
+
+**Default:** `""`
+
+Optional external public base URL used to construct accessible download links when MinIO is behind an ingress or reverse proxy.
+
 ### enable_auto_backup
 
 **Default:** `true`

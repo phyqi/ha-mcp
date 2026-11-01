@@ -11,6 +11,30 @@ configuration:
     name: Home Assistant 도구 동시성
     description: '모든 세션에 걸친 외부 Home Assistant 도구 호출의 선택적 제한. 내부 REST, WebSocket 및
       도구별 팬아웃 동시성은 변경되지 않습니다. 0은 무제한 동작을 유지합니다. 용량을 대기 중인 호출은 60초 후에 실패합니다. 범위: 0–32.'
+  minio_endpoint:
+    name: MinIO / S3 endpoint
+    description: Endpoint for MinIO or S3-compatible storage (e.g. minio.local:9000
+      or s3.amazonaws.com). Leave empty to disable.
+  minio_access_key:
+    name: MinIO / S3 access key
+    description: Access key ID for MinIO / S3 authentication.
+  minio_secret_key:
+    name: MinIO / S3 secret key
+    description: Secret access key for MinIO / S3 authentication.
+  minio_bucket:
+    name: MinIO / S3 default bucket
+    description: Default bucket name for uploaded captures.
+  minio_prefix:
+    name: MinIO / S3 directory prefix
+    description: Directory or folder path prefix inside the bucket where captures
+      are saved (e.g. 'captures' or 'security/cctv'). Leave empty for bucket root.
+  minio_secure:
+    name: MinIO / S3 secure (HTTPS)
+    description: Use HTTPS (SSL/TLS) when connecting to the MinIO/S3 endpoint.
+  minio_public_url:
+    name: MinIO / S3 public base URL
+    description: Optional external public URL used to construct client-accessible
+      links when MinIO is behind an ingress or reverse proxy.
   custom_instructions:
     name: 사용자 정의 서버 지침
     description: MCP 서버 지침의 일부로 연결되는 모든 AI 어시스턴트에게 전송되는 텍스트입니다. 예를 들어 가족 메모가 보관되는

@@ -36,6 +36,13 @@ The dev app uses the same configuration as the stable version. See the main app'
 | `enable_mandatory_bps` | Attaches the best-practice reference files to every successful write by the six config write tools. Turn off only for models with very small context windows. | `true` |
 | `enable_strict_mandatory_bps` | Blocks the six best-practice write tools until the client passes back the acknowledgment key from `ha_get_skill_guide`. No effect while `enable_mandatory_bps` is off. | `true` |
 | `ha_tool_concurrency` | Limit on Home Assistant tool calls running at once across all sessions (range 0-32). `0` means no limit. A waiting call fails after 60 seconds. | `0` |
+| `minio_endpoint` | Endpoint URL or host for MinIO / S3 object storage (e.g. `minio.local:9000`). | `""` |
+| `minio_access_key` | Access key ID for MinIO / S3 authentication. | `""` |
+| `minio_secret_key` | Secret access key for MinIO / S3 authentication. | `""` |
+| `minio_bucket` | Default bucket name for uploads. | `""` |
+| `minio_prefix` | Folder / directory prefix for uploads (default: `captures`). | `"captures"` |
+| `minio_secure` | Use HTTPS when connecting to MinIO / S3. | `false` |
+| `minio_public_url` | Optional external public base URL for links behind reverse proxy. | `""` |
 | `enable_auto_backup` | Saves a snapshot of an entity before each write or delete tool call changes it. The file and raw-YAML tools refuse to write while this is off. | `true` |
 | `auto_backup_throttle_minutes` | At most one auto-backup snapshot per entity per this many minutes (range 0-1440). `0` captures on every write. | `0` |
 | `auto_backup_retain_per_entity` | The most snapshots kept per entity (range 1-10000). | `100` |

@@ -31,6 +31,13 @@ image: "ghcr.io/homeassistant-ai/ha-mcp-addon-dev-{arch}"
 options:
   verify_ssl: true
   ha_tool_concurrency: 0
+  minio_endpoint: ""
+  minio_access_key: ""
+  minio_secret_key: ""
+  minio_bucket: ""
+  minio_prefix: "captures"
+  minio_secure: false
+  minio_public_url: ""
   custom_instructions: ""
   enable_beta_features: true
   enable_tool_search: false
@@ -64,6 +71,13 @@ options:
 schema:
   verify_ssl: bool?
   ha_tool_concurrency: int(0,32)?
+  minio_endpoint: str?
+  minio_access_key: str?
+  minio_secret_key: str?
+  minio_bucket: str?
+  minio_prefix: str?
+  minio_secure: bool?
+  minio_public_url: str?
   custom_instructions: str?
   enable_beta_features: bool?
   enable_tool_search: bool?
