@@ -1,5 +1,6 @@
 """Unit tests for S3Client using official MinIO Python SDK."""
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -186,3 +187,37 @@ async def test_upload_bytes_failure() -> None:
 
     with pytest.raises(ToolError, match="AccessDenied"):
         await client.upload_bytes(b"content", "test.jpg")
+
+
+@pytest.mark.asyncio
+async def test_cleanup_expired_objects() -> None:
+    mock_minio = MagicMock()
+    now = datetime.now(UTC)
+
+    # 1 expired object (>1h ago), 1 fresh object (5m ago)
+    obj_old = MagicMock()
+    obj_old.object_name = "reports/charts/old.png"
+    obj_old.last_modified = now - timedelta(hours=2)
+
+    obj_new = MagicMock()
+    obj_new.object_name = "reports/charts/new.png"
+    obj_new.last_modified = now - timedelta(minutes=5)
+
+    mock_minio.list_objects.return_value = [obj_old, obj_new]
+
+    client = S3Client(
+        endpoint="minio.local:9000",
+        access_key="admin",
+        secret_key="secret",
+        bucket="captures",
+        minio_client=mock_minio,
+    )
+
+    deleted = await client.cleanup_expired_objects(
+        prefix="reports/charts", max_age_seconds=3600
+    )
+
+    assert deleted == 1
+    mock_minio.remove_object.assert_called_once_with(
+        "captures", "reports/charts/old.png"
+    )

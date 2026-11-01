@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import io
 import logging
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlparse
 
@@ -237,3 +237,45 @@ class S3Client:
             return f"{raw}/{effective_bucket}/{clean_key}"
 
         return f"{self._scheme}://{self._netloc}/{effective_bucket}/{clean_key}"
+
+    async def cleanup_expired_objects(
+        self,
+        prefix: str | None = None,
+        max_age_seconds: int = _DEFAULT_PRESIGNED_TTL,
+        bucket: str | None = None,
+    ) -> int:
+        """Remove objects under prefix older than max_age_seconds (default 3600s / 1 hour)."""
+        if not self.is_configured:
+            return 0
+
+        effective_bucket = self._ensure_configured(bucket)
+        effective_prefix = self.default_prefix
+        if prefix is not None:
+            effective_prefix = prefix.strip().strip("/")
+
+        client = self._get_minio_client()
+
+        def _sync_cleanup() -> int:
+            deleted_count = 0
+            now = datetime.now(UTC)
+            threshold = now - timedelta(seconds=max_age_seconds)
+            try:
+                search_prefix = f"{effective_prefix}/" if effective_prefix else ""
+                objs = client.list_objects(
+                    bucket_name=effective_bucket,
+                    prefix=search_prefix,
+                    recursive=True,
+                )
+                for obj in objs:
+                    last_mod = getattr(obj, "last_modified", None)
+                    if last_mod and last_mod < threshold:
+                        client.remove_object(effective_bucket, obj.object_name)
+                        deleted_count += 1
+                        logger.info(
+                            f"Removed expired storage object: {obj.object_name} (older than {max_age_seconds}s)"
+                        )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"Storage cleanup notice: {exc}")
+            return deleted_count
+
+        return await anyio.to_thread.run_sync(_sync_cleanup)
