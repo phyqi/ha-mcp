@@ -1,21 +1,21 @@
 """S3 and MinIO-compatible object storage client for Home Assistant MCP Server.
 
-Provides async object upload and presigned GET URL generation using AWS
-Signature Version 4 (SigV4) with zero external dependencies (pure Python
-hashlib/hmac + httpx). Compatible with MinIO, AWS S3, Cloudflare R2, Ceph,
+Provides async object upload and presigned GET URL generation using the official
+MinIO Python SDK. Compatible with MinIO, AWS S3, Cloudflare R2, Ceph,
 and other S3-compliant object storage services.
 """
 
 from __future__ import annotations
 
-import hashlib
-import hmac
+import io
 import logging
-from datetime import UTC, datetime
+from datetime import timedelta
 from typing import Any
-from urllib.parse import quote, urlencode, urlparse
+from urllib.parse import urlparse
 
-import httpx
+import anyio
+from minio import Minio
+from minio.error import S3Error
 
 from ha_mcp.config import get_settings
 from ha_mcp.errors import ErrorCode, create_error_response
@@ -27,23 +27,8 @@ _DEFAULT_REGION = "us-east-1"
 _DEFAULT_PRESIGNED_TTL = 3600  # 1 hour
 
 
-def _sign(key: bytes, msg: str) -> bytes:
-    """Compute HMAC-SHA256 signature."""
-    return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
-
-
-def _get_signature_key(
-    key: str, date_stamp: str, region_name: str, service_name: str
-) -> bytes:
-    """Derive AWS SigV4 signing key."""
-    k_date = _sign(("AWS4" + key).encode("utf-8"), date_stamp)
-    k_region = _sign(k_date, region_name)
-    k_service = _sign(k_region, service_name)
-    return _sign(k_service, "aws4_request")
-
-
 class S3Client:
-    """Async S3 / MinIO client for uploading objects and generating URLs."""
+    """Async S3 / MinIO client for uploading objects and generating URLs using MinIO SDK."""
 
     def __init__(
         self,
@@ -55,7 +40,7 @@ class S3Client:
         region: str | None = None,
         secure: bool | None = None,
         public_url: str | None = None,
-        httpx_client: httpx.AsyncClient | None = None,
+        minio_client: Minio | None = None,
     ) -> None:
         settings = get_settings()
         self._endpoint_raw = endpoint or settings.minio_endpoint
@@ -67,7 +52,7 @@ class S3Client:
         self._region = region or settings.minio_region or _DEFAULT_REGION
         self._secure = secure if secure is not None else settings.minio_secure
         self._public_url_raw = public_url or settings.minio_public_url
-        self._httpx_client = httpx_client
+        self._minio_client = minio_client
 
         # Normalize endpoint
         self._scheme, self._netloc, self._base_path = self._parse_endpoint(
@@ -134,17 +119,17 @@ class S3Client:
             )
         return effective_bucket
 
-    def _canonical_uri(self, bucket: str, object_key: str) -> str:
-        """Construct RFC 3986 canonical URI for bucket and object key."""
-        clean_key = object_key.lstrip("/")
-        # Encode key segments safely
-        encoded_segments = [
-            quote(segment, safe="-_.~") for segment in clean_key.split("/")
-        ]
-        key_path = "/".join(encoded_segments)
-        base = f"{self._base_path}/{quote(bucket, safe='-_.~')}/{key_path}"
-        # Ensure single leading slash
-        return "/" + base.lstrip("/")
+    def _get_minio_client(self) -> Minio:
+        """Instantiate or return the underlying Minio client."""
+        if self._minio_client is not None:
+            return self._minio_client
+        return Minio(
+            endpoint=self._netloc,
+            access_key=self._access_key or "",
+            secret_key=self._secret_key or "",
+            secure=self._secure,
+            region=self._region or _DEFAULT_REGION,
+        )
 
     async def upload_bytes(
         self,
@@ -153,87 +138,29 @@ class S3Client:
         content_type: str = "application/octet-stream",
         bucket: str | None = None,
     ) -> dict[str, Any]:
-        """Upload raw bytes to MinIO / S3 object storage using SigV4."""
+        """Upload raw bytes to MinIO / S3 object storage."""
         effective_bucket = self._ensure_configured(bucket)
         clean_key = object_key.lstrip("/")
-        canonical_uri = self._canonical_uri(effective_bucket, clean_key)
+        client = self._get_minio_client()
 
-        now = datetime.now(UTC)
-        amz_date = now.strftime("%Y%m%dT%H%M%SZ")
-        date_stamp = now.strftime("%Y%m%d")
+        def _sync_put() -> Any:
+            try:
+                if not client.bucket_exists(effective_bucket):
+                    client.make_bucket(effective_bucket)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"Bucket existence check/create ignored: {exc}")
 
-        payload_hash = hashlib.sha256(data).hexdigest()
+            return client.put_object(
+                bucket_name=effective_bucket,
+                object_name=clean_key,
+                data=io.BytesIO(data),
+                length=len(data),
+                content_type=content_type,
+            )
 
-        # Build headers
-        host_header = self._netloc
-        canonical_headers = (
-            f"content-type:{content_type}\n"
-            f"host:{host_header}\n"
-            f"x-amz-content-sha256:{payload_hash}\n"
-            f"x-amz-date:{amz_date}\n"
-        )
-        signed_headers = "content-type;host;x-amz-content-sha256;x-amz-date"
-
-        # Canonical request
-        canonical_request = (
-            f"PUT\n"
-            f"{canonical_uri}\n"
-            f"\n"
-            f"{canonical_headers}\n"
-            f"{signed_headers}\n"
-            f"{payload_hash}"
-        )
-
-        # String to sign
-        credential_scope = f"{date_stamp}/{self._region}/s3/aws4_request"
-        string_to_sign = (
-            f"AWS4-HMAC-SHA256\n"
-            f"{amz_date}\n"
-            f"{credential_scope}\n"
-            f"{hashlib.sha256(canonical_request.encode('utf-8')).hexdigest()}"
-        )
-
-        signing_key = _get_signature_key(
-            self._secret_key or "", date_stamp, self._region, "s3"
-        )
-        signature = hmac.new(
-            signing_key, string_to_sign.encode("utf-8"), hashlib.sha256
-        ).hexdigest()
-
-        authorization_header = (
-            f"AWS4-HMAC-SHA256 Credential={self._access_key}/{credential_scope}, "
-            f"SignedHeaders={signed_headers}, Signature={signature}"
-        )
-
-        req_headers = {
-            "Host": host_header,
-            "Content-Type": content_type,
-            "x-amz-date": amz_date,
-            "x-amz-content-sha256": payload_hash,
-            "Authorization": authorization_header,
-            "Content-Length": str(len(data)),
-        }
-
-        target_url = f"{self._scheme}://{self._netloc}{canonical_uri}"
-
-        client = self._httpx_client or httpx.AsyncClient(timeout=30.0)
         try:
-            response = await client.put(target_url, headers=req_headers, content=data)
-            if response.status_code not in (200, 201, 204):
-                error_body = response.text[:300]
-                logger.error(
-                    f"MinIO/S3 upload failed: HTTP {response.status_code} - {error_body}"
-                )
-                raise_tool_error(
-                    create_error_response(
-                        ErrorCode.SERVICE_CALL_FAILED,
-                        f"Failed to upload object to MinIO/S3: HTTP {response.status_code}",
-                        details=error_body,
-                        context={"bucket": effective_bucket, "object_key": clean_key},
-                    )
-                )
-
-            etag = response.headers.get("etag", "").strip('"')
+            res = await anyio.to_thread.run_sync(_sync_put)
+            etag = res.etag.strip('"') if getattr(res, "etag", None) else ""
             logger.info(
                 f"Successfully uploaded {clean_key} ({len(data)} bytes) to bucket {effective_bucket}"
             )
@@ -245,9 +172,26 @@ class S3Client:
                 "content_type": content_type,
                 "etag": etag,
             }
-        finally:
-            if self._httpx_client is None:
-                await client.aclose()
+        except S3Error as err:
+            logger.error(f"MinIO upload failed: {err.code} - {err.message}")
+            raise_tool_error(
+                create_error_response(
+                    ErrorCode.SERVICE_CALL_FAILED,
+                    f"Failed to upload object to MinIO: {err.code}",
+                    details=err.message,
+                    context={"bucket": effective_bucket, "object_key": clean_key},
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"MinIO upload failed: {exc}")
+            raise_tool_error(
+                create_error_response(
+                    ErrorCode.SERVICE_CALL_FAILED,
+                    "Failed to upload object to MinIO",
+                    details=str(exc),
+                    context={"bucket": effective_bucket, "object_key": clean_key},
+                )
+            )
 
     def generate_presigned_url(
         self,
@@ -258,78 +202,38 @@ class S3Client:
         """Generate a presigned GET URL for an object valid for expires_in seconds."""
         effective_bucket = self._ensure_configured(bucket)
         clean_key = object_key.lstrip("/")
-        canonical_uri = self._canonical_uri(effective_bucket, clean_key)
 
-        now = datetime.now(UTC)
-        amz_date = now.strftime("%Y%m%dT%H%M%SZ")
-        date_stamp = now.strftime("%Y%m%d")
+        if expires_in == 0:
+            return self.get_public_url(clean_key, bucket=effective_bucket)
 
-        credential_scope = f"{date_stamp}/{self._region}/s3/aws4_request"
-        credential_value = f"{self._access_key}/{credential_scope}"
+        client = self._get_minio_client()
+        url = client.presigned_get_object(
+            bucket_name=effective_bucket,
+            object_name=clean_key,
+            expires=timedelta(seconds=expires_in),
+        )
 
-        # If custom public URL is configured, use its host/scheme for accessible client URL
         if self._public_url_raw:
-            pub_scheme, pub_netloc, _ = self._parse_endpoint(
-                self._public_url_raw, self._secure
-            )
-            host_header = pub_netloc
-            scheme = pub_scheme
-        else:
-            host_header = self._netloc
-            scheme = self._scheme
+            raw = self._public_url_raw.strip()
+            if not raw.startswith(("http://", "https://")):
+                raw = f"{'https' if self._secure else 'http'}://{raw}"
+            parsed_pub = urlparse(raw)
+            parsed_url = urlparse(url)
+            scheme = parsed_pub.scheme or ("https" if self._secure else "http")
+            netloc = parsed_pub.netloc or parsed_pub.path
+            url = parsed_url._replace(scheme=scheme, netloc=netloc).geturl()
 
-        query_params = {
-            "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
-            "X-Amz-Credential": credential_value,
-            "X-Amz-Date": amz_date,
-            "X-Amz-Expires": str(expires_in),
-            "X-Amz-SignedHeaders": "host",
-        }
-
-        # Canonical query string: sorted by key and percent-encoded
-        sorted_params = sorted(query_params.items())
-        canonical_query_string = urlencode(sorted_params, quote_via=quote)
-
-        # Canonical request
-        canonical_headers = f"host:{host_header}\n"
-        signed_headers = "host"
-        payload_hash = "UNSIGNED-PAYLOAD"
-
-        canonical_request = (
-            f"GET\n"
-            f"{canonical_uri}\n"
-            f"{canonical_query_string}\n"
-            f"{canonical_headers}\n"
-            f"{signed_headers}\n"
-            f"{payload_hash}"
-        )
-
-        string_to_sign = (
-            f"AWS4-HMAC-SHA256\n"
-            f"{amz_date}\n"
-            f"{credential_scope}\n"
-            f"{hashlib.sha256(canonical_request.encode('utf-8')).hexdigest()}"
-        )
-
-        signing_key = _get_signature_key(
-            self._secret_key or "", date_stamp, self._region, "s3"
-        )
-        signature = hmac.new(
-            signing_key, string_to_sign.encode("utf-8"), hashlib.sha256
-        ).hexdigest()
-
-        return f"{scheme}://{host_header}{canonical_uri}?{canonical_query_string}&X-Amz-Signature={signature}"
+        return url
 
     def get_public_url(self, object_key: str, bucket: str | None = None) -> str:
-        """Construct direct public URL without signature parameters."""
+        """Generate direct public URL for a bucket object."""
         effective_bucket = self._ensure_configured(bucket)
         clean_key = object_key.lstrip("/")
-        canonical_uri = self._canonical_uri(effective_bucket, clean_key)
 
         if self._public_url_raw:
-            pub_scheme, pub_netloc, _ = self._parse_endpoint(
-                self._public_url_raw, self._secure
-            )
-            return f"{pub_scheme}://{pub_netloc}{canonical_uri}"
+            raw = self._public_url_raw.strip().rstrip("/")
+            if not raw.startswith(("http://", "https://")):
+                raw = f"{'https' if self._secure else 'http'}://{raw}"
+            return f"{raw}/{effective_bucket}/{clean_key}"
 
-        return f"{self._scheme}://{self._netloc}{canonical_uri}"
+        return f"{self._scheme}://{self._netloc}/{effective_bucket}/{clean_key}"

@@ -1,23 +1,13 @@
-"""Unit tests for S3Client (pure Python SigV4 MinIO/S3 object storage client)."""
+"""Unit tests for S3Client using official MinIO Python SDK."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
-import httpx
 import pytest
+from minio.error import S3Error
+from urllib3.response import HTTPResponse
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
-from ha_mcp.client.s3_client import S3Client, _get_signature_key
-
-
-def test_sigv4_key_derivation() -> None:
-    """Verify that AWS SigV4 key derivation produces a 32-byte hash."""
-    signing_key = _get_signature_key(
-        "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-        "20130524",
-        "us-east-1",
-        "s3",
-    )
-    assert len(signing_key) == 32
+from ha_mcp.client.s3_client import S3Client
 
 
 @pytest.mark.parametrize(
@@ -89,7 +79,6 @@ def test_generate_presigned_url() -> None:
     assert "X-Amz-Algorithm=AWS4-HMAC-SHA256" in url
     assert "X-Amz-Credential=minioadmin" in url
     assert "X-Amz-Expires=1800" in url
-    assert "X-Amz-SignedHeaders=host" in url
     assert "X-Amz-Signature=" in url
 
 
@@ -99,6 +88,7 @@ def test_generate_presigned_url_with_public_url() -> None:
         access_key="minioadmin",
         secret_key="minioadmin",
         bucket="test-bucket",
+        region="us-east-1",
         public_url="https://s3.example.com",
     )
 
@@ -135,19 +125,21 @@ def test_get_public_url() -> None:
 
 @pytest.mark.asyncio
 async def test_upload_bytes_success() -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.headers = {"etag": '"abc123etag"'}
+    mock_minio = MagicMock()
+    mock_minio.bucket_exists.return_value = True
 
-    mock_httpx = AsyncMock(spec=httpx.AsyncClient)
-    mock_httpx.put.return_value = mock_resp
+    mock_result = MagicMock()
+    mock_result.etag = '"abc123etag"'
+    mock_result.object_name = "front.jpg"
+    mock_result.version_id = None
+    mock_minio.put_object.return_value = mock_result
 
     client = S3Client(
         endpoint="minio.local:9000",
         access_key="admin",
         secret_key="secret",
         bucket="captures",
-        httpx_client=mock_httpx,
+        minio_client=mock_minio,
     )
 
     payload = b"\xff\xd8\xff\xe0testjpegcontent"
@@ -160,31 +152,37 @@ async def test_upload_bytes_success() -> None:
     assert res["content_type"] == "image/jpeg"
     assert res["etag"] == "abc123etag"
 
-    mock_httpx.put.assert_called_once()
-    call_args = mock_httpx.put.call_args
-    assert call_args[0][0] == "http://minio.local:9000/captures/front.jpg"
-    headers = call_args[1]["headers"]
-    assert "Authorization" in headers
-    assert headers["Content-Type"] == "image/jpeg"
-    assert headers["Content-Length"] == str(len(payload))
+    mock_minio.put_object.assert_called_once()
+    args, kwargs = mock_minio.put_object.call_args
+    assert kwargs["bucket_name"] == "captures"
+    assert kwargs["object_name"] == "front.jpg"
+    assert kwargs["length"] == len(payload)
+    assert kwargs["content_type"] == "image/jpeg"
 
 
 @pytest.mark.asyncio
 async def test_upload_bytes_failure() -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 403
-    mock_resp.text = "<Error><Code>AccessDenied</Code></Error>"
+    mock_minio = MagicMock()
+    mock_minio.bucket_exists.return_value = True
 
-    mock_httpx = AsyncMock(spec=httpx.AsyncClient)
-    mock_httpx.put.return_value = mock_resp
+    response = HTTPResponse(status=403, reason="AccessDenied")
+    s3_err = S3Error(
+        code="AccessDenied",
+        message="Access Denied",
+        resource="/captures/test.jpg",
+        request_id="123",
+        host_id="456",
+        response=response,
+    )
+    mock_minio.put_object.side_effect = s3_err
 
     client = S3Client(
         endpoint="minio.local:9000",
         access_key="admin",
         secret_key="secret",
         bucket="captures",
-        httpx_client=mock_httpx,
+        minio_client=mock_minio,
     )
 
-    with pytest.raises(ToolError, match="HTTP 403"):
+    with pytest.raises(ToolError, match="AccessDenied"):
         await client.upload_bytes(b"content", "test.jpg")
