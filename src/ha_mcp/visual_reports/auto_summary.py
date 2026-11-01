@@ -369,3 +369,4 @@ def synthesize_home_overview(states: list[dict[str, Any]]) -> dict[str, Any]:
         "suggested_camera": suggested_camera,
         "metrics_for_card": card_metrics[:6],
     }
+

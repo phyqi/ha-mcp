@@ -3,6 +3,48 @@
 <!-- version list -->
 
 
+## v9.3.1 (2026-11-01)
+
+### Added
+
+- **reports**: Auto-discover active Home Assistant states (climate, lights, power, security, cameras) for visual infographics and status cards
+- **reports**: Add empty-state placeholder card protection to prevent empty/blank image canvas
+
+### Fixed
+
+- **reports**: Fix issue where general home report prompt produces an empty image canvas when called without explicit metric parameters
+
+## v9.3.0 (2026-11-01)
+
+### Added
+
+- **reports**: Add `ha_generate_infographic` tool for rich, visual home status infographics with KPI highlight tiles, progress/gauge bars, grouped device sections, and executive AI summary
+- **reports**: Bundle official vector TrueType fonts (`DejaVuSans.ttf`, `DejaVuSans-Bold.ttf`) and install `fonts-dejavu-core` in container runtime
+
+### Changed
+
+- **reports**: Upgrade visual chart and status card drawer with 2x Retina supersampling and anti-aliased Lanczos downscaling
+
+## v9.2.0 (2026-11-01)
+
+### Added
+
+- **reports**: Add pure-Python visual sensor time-series chart tool (`ha_generate_sensor_chart`) with stats and transparent area fill
+- **reports**: Add pure-Python visual status card tool (`ha_generate_status_card`) with 2-column metric grid and status badges
+- **reports**: Add 1-hour retention policy (`expires_in_seconds=3600`) with auto-pruning cleanup for visual reports
+
+## v9.1.0 (2026-11-01)
+
+### Added
+
+- **storage**: Official MinIO Python SDK integration with `S3Client` / `MinioStorage`
+- **camera**: Auto-upload camera snapshots and dashboard screenshots to MinIO with presigned URLs
+- **addon**: Add MinIO/S3 configuration fields to Home Assistant add-on options
+
+### Changed
+
+- **build**: Point image registry and repository to `ghcr.io/phyqi/ha-mcp-addon-{arch}`
+
 ## v9.0.0 (2026-10-28)
 
 ### Added
