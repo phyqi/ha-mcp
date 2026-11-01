@@ -286,3 +286,64 @@ async def test_ha_generate_infographic_tool():
     mock_s3.cleanup_expired_objects.assert_called_once_with(
         prefix="reports/infographics", max_age_seconds=3600
     )
+
+
+def test_synthesize_home_overview():
+    """Verify synthesize_home_overview correctly extracts climate, lighting, power, and security."""
+    from ha_mcp.visual_reports.auto_summary import synthesize_home_overview
+
+    mock_states = [
+        {"entity_id": "sensor.living_room_temp", "state": "24.5", "attributes": {"friendly_name": "Suhu Ruang Tamu", "device_class": "temperature", "unit_of_measurement": "°C"}},
+        {"entity_id": "sensor.living_room_humidity", "state": "60", "attributes": {"friendly_name": "Kelembaban", "device_class": "humidity", "unit_of_measurement": "%"}},
+        {"entity_id": "light.living_room", "state": "on", "attributes": {"friendly_name": "Lampu Utama"}},
+        {"entity_id": "light.bedroom", "state": "off", "attributes": {"friendly_name": "Lampu Kamar"}},
+        {"entity_id": "sensor.home_power", "state": "450", "attributes": {"friendly_name": "Daya Total", "device_class": "power", "unit_of_measurement": "W"}},
+        {"entity_id": "binary_sensor.front_door", "state": "off", "attributes": {"friendly_name": "Pintu Depan", "device_class": "door"}},
+        {"entity_id": "sensor.door_lock_battery", "state": "85", "attributes": {"friendly_name": "Baterai Smartlock", "device_class": "battery", "unit_of_measurement": "%"}},
+        {"entity_id": "camera.front_porch", "state": "idle", "attributes": {"friendly_name": "Kamera Teras"}},
+    ]
+
+    overview = synthesize_home_overview(mock_states)
+    assert len(overview["kpi_highlights"]) >= 3
+    assert any("Suhu" in k["label"] for k in overview["kpi_highlights"])
+    assert any("Pencahayaan" in k["label"] for k in overview["kpi_highlights"])
+    assert any("Konsumsi Daya" in k["label"] for k in overview["kpi_highlights"])
+    assert len(overview["progress_bars"]) >= 1
+    assert len(overview["sections"]) >= 2
+    assert overview["suggested_camera"] == "camera.front_porch"
+    assert "Laporan otomatis" in overview["summary"]
+    assert len(overview["metrics_for_card"]) >= 3
+
+
+@pytest.mark.anyio
+async def test_ha_generate_infographic_auto_discovery():
+    """Verify ha_generate_infographic automatically queries get_states and populates infographic when called with defaults."""
+    mock_ha_client = MagicMock()
+    mock_ha_client.get_states = AsyncMock(
+        return_value=[
+            {"entity_id": "sensor.temp", "state": "25.0", "attributes": {"friendly_name": "Suhu Ruangan", "device_class": "temperature", "unit_of_measurement": "°C"}},
+            {"entity_id": "light.light_1", "state": "on", "attributes": {"friendly_name": "Lampu 1"}},
+            {"entity_id": "binary_sensor.door", "state": "off", "attributes": {"friendly_name": "Pintu Utama", "device_class": "door"}},
+        ]
+    )
+    mock_ha_client.httpx_client.get = AsyncMock(return_value=MagicMock(status_code=404, content=None))
+
+    mock_s3 = MagicMock(spec=S3Client)
+    mock_s3.is_configured = False
+
+    tools = VisualReportTools(mock_ha_client, mock_s3)
+    # Call without any parameters (mimicking user's 'buatkan laporan rumah dalam bentuk gambar')
+    result = await tools.ha_generate_infographic()
+
+    assert isinstance(result, ToolResult)
+    assert len(result.content) == 2
+    assert result.content[0].type == "image"
+    assert result.content[0].mime_type == "image/png"
+
+    struct = result.structured_content
+    assert struct["success"] is True
+    # Verify auto-discovery populated KPIs and sections
+    assert struct["kpis_count"] >= 2
+    assert struct["sections_count"] >= 1
+    mock_ha_client.get_states.assert_called_once()
+

@@ -112,6 +112,33 @@ def render_status_card(
         except Exception:  # noqa: BLE001
             pass
 
+    # Empty State Notice if no items
+    if not items and not summary and not camera_image_bytes:
+        box_w = sw - 72 * scale
+        box_h = 140 * scale
+        draw.rounded_rectangle(
+            [(36 * scale, curr_y), (36 * scale + box_w, curr_y + box_h)],
+            radius=12 * scale,
+            fill=(24, 32, 47, 255),
+            outline=(51, 65, 85, 255),
+            width=1 * scale,
+        )
+        draw.text(
+            (sw // 2, curr_y + 50 * scale),
+            "Tidak Ada Data Metrik",
+            fill=(248, 250, 252, 255),
+            font=get_font(16 * scale, bold=True),
+            anchor="mm",
+        )
+        draw.text(
+            (sw // 2, curr_y + 85 * scale),
+            "Pilih entitas perangkat atau masukkan data metrik untuk ditampilkan.",
+            fill=(148, 163, 184, 255),
+            font=get_font(12 * scale),
+            anchor="mm",
+        )
+        curr_y += box_h + 20 * scale
+
     # 3. Metrics Grid (2 columns)
     col_w = (sw - 72 * scale - 20 * scale) // 2
     for idx, m in enumerate(items):

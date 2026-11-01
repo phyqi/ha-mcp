@@ -180,6 +180,33 @@ def render_infographic(
         except Exception:  # noqa: BLE001
             pass
 
+    # Empty State Notice if no content is provided
+    if not kpis and not bars and not secs and not summary and not camera_image_bytes:
+        box_w = sw - 72 * scale
+        box_h = 160 * scale
+        draw.rounded_rectangle(
+            [(36 * scale, y_pos), (36 * scale + box_w, y_pos + box_h)],
+            radius=12 * scale,
+            fill=(24, 32, 47, 255),
+            outline=(51, 65, 85, 255),
+            width=1 * scale,
+        )
+        draw.text(
+            (sw // 2, y_pos + 60 * scale),
+            "Tidak Ada Data Perangkat atau Sensor Ditemukan",
+            fill=(248, 250, 252, 255),
+            font=get_font(16 * scale, bold=True),
+            anchor="mm",
+        )
+        draw.text(
+            (sw // 2, y_pos + 100 * scale),
+            "Hubungkan perangkat ke Home Assistant atau berikan parameter metrik ke tool.",
+            fill=(148, 163, 184, 255),
+            font=get_font(12 * scale),
+            anchor="mm",
+        )
+        y_pos += box_h + 20 * scale
+
     # 3. KPI Highlights Cards (Row of 3-4 cards)
     if kpis:
         num_kpis = min(len(kpis), 4)
@@ -376,3 +403,4 @@ def render_infographic(
     buf = io.BytesIO()
     final_output.save(buf, format="PNG", optimize=True)
     return buf.getvalue()
+

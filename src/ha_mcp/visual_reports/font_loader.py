@@ -39,3 +39,4 @@ def get_font(size: int = 14, bold: bool = False) -> ImageFont.FreeTypeFont | Ima
         return ImageFont.load_default(size=size)
     except TypeError:
         return ImageFont.load_default()
+

@@ -24,6 +24,7 @@ from ha_mcp.tools.helpers import (
 )
 from ha_mcp.tools.storage_base import StorageConsumerMixin
 from ha_mcp.tools.tool_hints import read_only_hints
+from ha_mcp.visual_reports.auto_summary import synthesize_home_overview
 from ha_mcp.visual_reports.card_drawer import render_status_card
 from ha_mcp.visual_reports.chart_drawer import render_sensor_chart
 from ha_mcp.visual_reports.infographic_drawer import render_infographic
@@ -244,7 +245,10 @@ class VisualReportTools(StorageConsumerMixin):
             Field(description="Whether to upload to MinIO storage if configured."),
         ] = True,
     ) -> ToolResult:
-        """Generate a visual status infographic card with optional camera snapshot, auto-uploaded with 1-hour retention."""
+        """Generate a visual status infographic card with optional camera snapshot, auto-uploaded with 1-hour retention.
+
+        When called without 'metrics' or 'entity_ids', this tool automatically scans active Home Assistant entities (climate, lights, security) to generate a complete visual status card.
+        """
         items: list[dict[str, Any]] = []
 
         # Parse metrics if provided
@@ -286,6 +290,19 @@ class VisualReportTools(StorageConsumerMixin):
                     })
                 except Exception:  # noqa: BLE001
                     continue
+
+        # Auto-discover states if neither metrics nor entity_ids were provided
+        if not items and not entity_ids:
+            try:
+                states = await self._client.get_states()
+                overview = synthesize_home_overview(states)
+                items.extend(overview.get("metrics_for_card", []))
+                if not summary and overview.get("summary"):
+                    summary = overview["summary"]
+                if not camera_entity_id and overview.get("suggested_camera"):
+                    camera_entity_id = overview["suggested_camera"]
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"Auto-discovery for status card skipped: {exc}")
 
         cam_bytes: bytes | None = None
         if camera_entity_id:
@@ -397,7 +414,10 @@ class VisualReportTools(StorageConsumerMixin):
             Field(description="Whether to upload to MinIO storage if configured."),
         ] = True,
     ) -> ToolResult:
-        """Generate a rich, visual home status infographic with KPI metric tiles, gauge bars, grouped device sections, and optional camera snapshot."""
+        """Generate a rich, visual home status infographic with KPI metric tiles, gauge bars, grouped device sections, and optional camera snapshot.
+
+        When called without 'kpi_highlights', 'progress_bars', or 'sections' (e.g. general requests like 'buatkan laporan rumah dalam bentuk gambar'), this tool automatically discovers and aggregates active Home Assistant states (climate, lights, power, security sensors, cameras) into a complete, beautiful visual infographic report.
+        """
         def _parse_list(val: Any) -> list[dict[str, Any]]:
             if not val:
                 return []
@@ -414,6 +434,24 @@ class VisualReportTools(StorageConsumerMixin):
         parsed_kpis = _parse_list(kpi_highlights)
         parsed_bars = _parse_list(progress_bars)
         parsed_secs = _parse_list(sections)
+
+        # Auto-discover home overview if no explicit KPI highlights, bars, or sections provided
+        if not parsed_kpis and not parsed_bars and not parsed_secs:
+            try:
+                states = await self._client.get_states()
+                overview = synthesize_home_overview(states)
+                if not parsed_kpis:
+                    parsed_kpis = overview.get("kpi_highlights", [])
+                if not parsed_bars:
+                    parsed_bars = overview.get("progress_bars", [])
+                if not parsed_secs:
+                    parsed_secs = overview.get("sections", [])
+                if not summary and overview.get("summary"):
+                    summary = overview["summary"]
+                if not camera_entity_id and overview.get("suggested_camera"):
+                    camera_entity_id = overview["suggested_camera"]
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"Auto-discovery for infographic skipped: {exc}")
 
         cam_bytes: bytes | None = None
         if camera_entity_id:
