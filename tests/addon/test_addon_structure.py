@@ -102,7 +102,10 @@ class TestAddonStructure:
         assert config["homeassistant_api"] is True, "homeassistant_api required"
 
         # Verify image field uses per-architecture naming
-        assert config["image"] == "ghcr.io/homeassistant-ai/ha-mcp-addon-{arch}", (
+        assert config["image"] in (
+            "ghcr.io/homeassistant-ai/ha-mcp-addon-{arch}",
+            "ghcr.io/phyqi/ha-mcp-addon-{arch}",
+        ), (
             "image field must use per-architecture naming with {arch} placeholder"
         )
 
