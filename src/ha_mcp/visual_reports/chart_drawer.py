@@ -51,9 +51,9 @@ def render_sensor_chart(
     font_stats = get_font(12 * scale, bold=True)
 
     # 1. Header (Title & Subtitle)
-    draw.text((36 * scale, 28 * scale), title, fill=(248, 250, 252, 255), font=font_title)
+    draw.text((36 * scale, 28 * scale), title, fill=(255, 255, 255, 255), font=font_title)
     sub = subtitle or datetime.now(UTC).strftime("%d %b %Y, %H:%M UTC")
-    draw.text((36 * scale, 58 * scale), sub, fill=(148, 163, 184, 255), font=font_subtitle)
+    draw.text((36 * scale, 58 * scale), sub, fill=(203, 213, 225, 255), font=font_subtitle)
 
     # Filter out series with empty points
     valid_series = [s for s in series if s.get("points")]
@@ -70,7 +70,7 @@ def render_sensor_chart(
         draw.text(
             (sw // 2 - 140 * scale, sh // 2 - 10 * scale),
             "Tidak ada data riwayat untuk ditampilkan",
-            fill=(148, 163, 184, 255),
+            fill=(226, 232, 240, 255),
             font=get_font(16 * scale),
         )
         final_img = img.resize((width, height), Image.Resampling.LANCZOS)
@@ -113,7 +113,7 @@ def render_sensor_chart(
         unit = valid_series[0].get("unit", "")
         if unit:
             val_text = f"{val_text} {unit}"
-        draw.text((plot_left - 65 * scale, y - 8 * scale), val_text, fill=(100, 116, 139, 255), font=font_labels)
+        draw.text((plot_left - 65 * scale, y - 8 * scale), val_text, fill=(186, 199, 214, 255), font=font_labels)
 
     # 3. Draw X-Axis Time Labels (5 ticks)
     num_x_ticks = 5
@@ -122,7 +122,7 @@ def render_sensor_chart(
         ts = min_ts + (i / (num_x_ticks - 1)) * (max_ts - min_ts)
         dt = datetime.fromtimestamp(ts, tz=UTC)
         time_text = dt.strftime("%H:%M")
-        draw.text((x - 16 * scale, plot_bottom + 12 * scale), time_text, fill=(100, 116, 139, 255), font=font_labels)
+        draw.text((x - 16 * scale, plot_bottom + 12 * scale), time_text, fill=(186, 199, 214, 255), font=font_labels)
 
     # 4. Plot each series (Area + Line + Points)
     primary_stats: dict[str, Any] = {}

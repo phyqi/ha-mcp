@@ -3,6 +3,15 @@
 <!-- version list -->
 
 
+## v9.3.2 (2026-11-02)
+
+### Added
+
+- **storage**: Extend default presigned image URL expiration and storage retention to 1 week (604,800 seconds / 7 days)
+- **reports**: Strict aspect ratio preservation for camera snapshots in visual infographics and status cards without distortion
+- **reports**: High-contrast typography and anti-camouflage theming with WCAG-legible status pills and silver-slate neutral states
+- **reports**: Symmetrical two-column responsive grid layout preventing category card overlaps in infographics
+
 ## v9.3.1 (2026-11-01)
 
 ### Added

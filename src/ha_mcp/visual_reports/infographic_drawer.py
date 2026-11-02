@@ -10,26 +10,26 @@ from PIL import Image, ImageDraw
 
 from .font_loader import get_font
 
-# Status colors for infographic elements
+# Status colors for infographic elements (vibrant, high-contrast, WCAG-legible)
 STATUS_COLORS = {
-    "ok": (16, 185, 129),  # Emerald 500
-    "normal": (16, 185, 129),
-    "safe": (16, 185, 129),
-    "success": (16, 185, 129),
-    "locked": (16, 185, 129),
-    "info": (56, 189, 248),  # Sky 400
+    "ok": (52, 211, 153),      # Emerald 400 (Vibrant, high contrast)
+    "normal": (52, 211, 153),
+    "safe": (52, 211, 153),
+    "success": (52, 211, 153),
+    "locked": (52, 211, 153),
+    "closed": (52, 211, 153),
+    "info": (56, 189, 248),    # Sky 400 (Vivid Cyan)
     "active": (56, 189, 248),
     "on": (56, 189, 248),
     "cool": (56, 189, 248),
-    "warning": (245, 158, 11),  # Amber 500
-    "alert": (245, 158, 11),
-    "caution": (245, 158, 11),
-    "error": (239, 68, 68),  # Rose 500
-    "danger": (239, 68, 68),
-    "unlocked": (239, 68, 68),
-    "open": (245, 158, 11),
-    "off": (100, 116, 139),  # Slate 500
-    "closed": (16, 185, 129),
+    "warning": (251, 191, 36), # Amber 400 (Crisp Gold)
+    "alert": (251, 191, 36),
+    "caution": (251, 191, 36),
+    "open": (251, 191, 36),
+    "error": (248, 113, 113),  # Rose 400 (Vivid Red)
+    "danger": (248, 113, 113),
+    "unlocked": (248, 113, 113),
+    "off": (186, 199, 214),    # Slate 250 (Clear silver, never blends into background)
 }
 
 
@@ -75,13 +75,43 @@ def render_infographic(
     bars = progress_bars or []
     secs = sections or []
 
-    # Calculate dynamic height
+    # Process camera snapshot with strict original aspect ratio preservation
+    cam_img: Image.Image | None = None
+    cam_target_w = 0
+    cam_target_h = 0
+    cam_x = 36 * scale
+
+    if camera_image_bytes:
+        try:
+            raw_cam = Image.open(io.BytesIO(camera_image_bytes)).convert("RGBA")
+            orig_w, orig_h = raw_cam.size
+            if orig_w > 0 and orig_h > 0:
+                max_w = sw - 72 * scale
+                max_h = 460 * scale  # max hero height for visual balance
+                ratio = orig_w / orig_h
+
+                cam_target_w = max_w
+                cam_target_h = int(cam_target_w / ratio)
+                if cam_target_h > max_h:
+                    cam_target_h = max_h
+                    cam_target_w = int(cam_target_h * ratio)
+
+                cam_x = (sw - cam_target_w) // 2
+                cam_img = raw_cam.resize((cam_target_w, cam_target_h), Image.Resampling.LANCZOS)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Group sections into 2-column rows for symmetrical alignment
+    sec_rows: list[list[dict[str, Any]]] = []
+    for i in range(0, len(secs), 2):
+        sec_rows.append(secs[i : i + 2])
+
+    # Dynamic canvas height calculation
     curr_y = 100 * scale
 
     # Camera hero height
-    cam_h = 240 * scale if camera_image_bytes else 0
-    if camera_image_bytes:
-        curr_y += cam_h + 24 * scale
+    if cam_img:
+        curr_y += cam_target_h + 24 * scale
 
     # KPI row height
     if kpis:
@@ -89,12 +119,14 @@ def render_infographic(
 
     # Progress bars height
     if bars:
-        curr_y += (len(bars) * 44 + 40) * scale
+        curr_y += (len(bars) * 44 + 30) * scale
 
-    # Section items height
-    total_sec_items = sum(len(s.get("items", [])) for s in secs)
+    # Section rows height (symmetrical per row)
     if secs:
-        curr_y += (len(secs) * 36 + total_sec_items * 38 + 20) * scale
+        for row in sec_rows:
+            row_max_items = max(len(s.get("items", [])) for s in row)
+            row_h = (44 + row_max_items * 38 + 14) * scale
+            curr_y += row_h + 16 * scale
 
     # Summary callout height
     if summary:
@@ -116,9 +148,9 @@ def render_infographic(
     )
 
     # 1. Header Banner
-    draw.text((36 * scale, 28 * scale), title, fill=(248, 250, 252, 255), font=get_font(22 * scale, bold=True))
+    draw.text((36 * scale, 28 * scale), title, fill=(255, 255, 255, 255), font=get_font(22 * scale, bold=True))
     sub = subtitle or datetime.now(UTC).strftime("%A, %d %B %Y • %H:%M UTC")
-    draw.text((36 * scale, 60 * scale), sub, fill=(148, 163, 184, 255), font=get_font(12 * scale))
+    draw.text((36 * scale, 60 * scale), sub, fill=(203, 213, 225, 255), font=get_font(12 * scale))
 
     # Live Status Badge
     badge_w = 110 * scale
@@ -128,60 +160,54 @@ def render_infographic(
     draw.rounded_rectangle(
         [(badge_x, badge_y), (badge_x + badge_w, badge_y + badge_h)],
         radius=15 * scale,
-        fill=(16, 185, 129, 30),
-        outline=(16, 185, 129, 200),
+        fill=(52, 211, 153, 35),
+        outline=(52, 211, 153, 200),
         width=1 * scale,
     )
     draw.ellipse(
         [(badge_x + 14 * scale, badge_y + 11 * scale), (badge_x + 22 * scale, badge_y + 19 * scale)],
-        fill=(16, 185, 129, 255),
+        fill=(52, 211, 153, 255),
     )
     draw.text(
         (badge_x + 30 * scale, badge_y + 7 * scale),
         "LIVE HA",
-        fill=(16, 185, 129, 255),
+        fill=(52, 211, 153, 255),
         font=get_font(12 * scale, bold=True),
     )
 
     y_pos = 96 * scale
 
-    # 2. Camera Snapshot Hero (if present)
-    if camera_image_bytes:
-        try:
-            cam_img = Image.open(io.BytesIO(camera_image_bytes)).convert("RGBA")
-            target_w = sw - 72 * scale
-            target_h = 230 * scale
-            cam_img = cam_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+    # 2. Camera Snapshot Hero (Aspect ratio strictly preserved)
+    if cam_img:
+        mask = Image.new("L", (cam_target_w, cam_target_h), 0)
+        mask_draw = ImageDraw.Draw(mask)
+        mask_draw.rounded_rectangle([(0, 0), (cam_target_w, cam_target_h)], radius=14 * scale, fill=255)
 
-            mask = Image.new("L", (target_w, target_h), 0)
-            mask_draw = ImageDraw.Draw(mask)
-            mask_draw.rounded_rectangle([(0, 0), (target_w, target_h)], radius=14 * scale, fill=255)
-
-            img.paste(cam_img, (36 * scale, y_pos), mask)
-            draw.rounded_rectangle(
-                [(36 * scale, y_pos), (36 * scale + target_w, y_pos + target_h)],
-                radius=14 * scale,
-                outline=(55, 65, 81, 255),
-                width=2 * scale,
-            )
-            # Camera banner label
-            draw.rounded_rectangle(
-                [(48 * scale, y_pos + 12 * scale), (180 * scale, y_pos + 36 * scale)],
-                radius=6 * scale,
-                fill=(0, 0, 0, 180),
-            )
-            draw.text(
-                (58 * scale, y_pos + 16 * scale),
-                "📷 CAMERA SNAPSHOT",
-                fill=(248, 250, 252, 255),
-                font=get_font(10 * scale, bold=True),
-            )
-            y_pos += target_h + 20 * scale
-        except Exception:  # noqa: BLE001
-            pass
+        img.paste(cam_img, (cam_x, y_pos), mask)
+        draw.rounded_rectangle(
+            [(cam_x, y_pos), (cam_x + cam_target_w, y_pos + cam_target_h)],
+            radius=14 * scale,
+            outline=(55, 65, 81, 255),
+            width=2 * scale,
+        )
+        # Camera banner label
+        draw.rounded_rectangle(
+            [(cam_x + 12 * scale, y_pos + 12 * scale), (cam_x + 148 * scale, y_pos + 36 * scale)],
+            radius=6 * scale,
+            fill=(0, 0, 0, 200),
+            outline=(75, 85, 99, 200),
+            width=1 * scale,
+        )
+        draw.text(
+            (cam_x + 20 * scale, y_pos + 16 * scale),
+            "📷 CAMERA SNAPSHOT",
+            fill=(255, 255, 255, 255),
+            font=get_font(10 * scale, bold=True),
+        )
+        y_pos += cam_target_h + 24 * scale
 
     # Empty State Notice if no content is provided
-    if not kpis and not bars and not secs and not summary and not camera_image_bytes:
+    if not kpis and not bars and not secs and not summary and not cam_img:
         box_w = sw - 72 * scale
         box_h = 160 * scale
         draw.rounded_rectangle(
@@ -194,14 +220,14 @@ def render_infographic(
         draw.text(
             (sw // 2, y_pos + 60 * scale),
             "Tidak Ada Data Perangkat atau Sensor Ditemukan",
-            fill=(248, 250, 252, 255),
+            fill=(255, 255, 255, 255),
             font=get_font(16 * scale, bold=True),
             anchor="mm",
         )
         draw.text(
             (sw // 2, y_pos + 100 * scale),
             "Hubungkan perangkat ke Home Assistant atau berikan parameter metrik ke tool.",
-            fill=(148, 163, 184, 255),
+            fill=(203, 213, 225, 255),
             font=get_font(12 * scale),
             anchor="mm",
         )
@@ -227,7 +253,7 @@ def render_infographic(
                 [(cx, cy), (cx + card_w, cy + card_h)],
                 radius=12 * scale,
                 fill=(24, 32, 47, 255),  # Slate 850
-                outline=(37, 48, 67, 255),
+                outline=(45, 55, 72, 255),
                 width=1 * scale,
             )
 
@@ -238,20 +264,20 @@ def render_infographic(
                 fill=(*color, 255),
             )
 
-            # Label
+            # Label (Clear high contrast Slate 300)
             draw.text(
                 (cx + 16 * scale, cy + 12 * scale),
                 str(k.get("label", "")).upper(),
-                fill=(148, 163, 184, 255),
+                fill=(203, 213, 225, 255),
                 font=get_font(10 * scale, bold=True),
             )
 
-            # Large Value
+            # Large Value (Pure White)
             val_str = str(k.get("value", ""))
             draw.text(
                 (cx + 16 * scale, cy + 32 * scale),
                 val_str,
-                fill=(248, 250, 252, 255),
+                fill=(255, 255, 255, 255),
                 font=get_font(18 * scale, bold=True),
             )
 
@@ -262,7 +288,9 @@ def render_infographic(
                 draw.rounded_rectangle(
                     [(cx + 16 * scale, cy + 62 * scale), (cx + 16 * scale + bw, cy + 78 * scale)],
                     radius=8 * scale,
-                    fill=(*color, 35),
+                    fill=(*color, 45),
+                    outline=(*color, 180),
+                    width=1 * scale,
                 )
                 draw.text(
                     (cx + 24 * scale, cy + 65 * scale),
@@ -283,22 +311,24 @@ def render_infographic(
             b_status = str(b.get("status", "ok")).lower()
             b_color = STATUS_COLORS.get(b_status, (56, 189, 248))
 
-            # Text row
-            draw.text((36 * scale, y_pos), label, fill=(226, 232, 240, 255), font=get_font(12 * scale, bold=True))
+            # Text row (High contrast labels)
+            draw.text((36 * scale, y_pos), label, fill=(248, 250, 252, 255), font=get_font(12 * scale, bold=True))
             draw.text(
                 (sw - 36 * scale - len(v_text) * 7 * scale, y_pos),
                 v_text,
-                fill=(148, 163, 184, 255),
-                font=get_font(11 * scale),
+                fill=(226, 232, 240, 255),
+                font=get_font(11 * scale, bold=True),
             )
 
-            # Track bar
+            # Track bar with subtle outline
             bar_y = y_pos + 18 * scale
             bar_h = 10 * scale
             draw.rounded_rectangle(
                 [(36 * scale, bar_y), (36 * scale + pw, bar_y + bar_h)],
                 radius=5 * scale,
                 fill=(30, 41, 59, 255),
+                outline=(51, 65, 85, 255),
+                width=1 * scale,
             )
             # Filled bar
             if pct > 0:
@@ -313,65 +343,79 @@ def render_infographic(
 
         y_pos += 8 * scale
 
-    # 5. Grouped Category Sections (2-column layout)
+    # 5. Grouped Category Sections (Symmetrical 2-column layout)
     if secs:
         col_w = (sw - 72 * scale - 16 * scale) // 2
-        for idx, sec in enumerate(secs):
-            col = idx % 2
-            row = idx // 2
-            col_x = 36 * scale + col * (col_w + 16 * scale)
-            sec_y = y_pos + row * 160 * scale
+        for row in sec_rows:
+            row_max_items = max(len(s.get("items", [])) for s in row)
+            row_h = (44 + row_max_items * 38 + 14) * scale
 
-            cat_title = str(sec.get("category", "")).upper()
-            items = sec.get("items", [])
+            for col_idx, sec in enumerate(row):
+                col_x = 36 * scale + col_idx * (col_w + 16 * scale)
+                cat_title = str(sec.get("category", "")).upper()
+                items = sec.get("items", [])
 
-            # Category container
-            box_h = (36 + len(items) * 36) * scale
-            draw.rounded_rectangle(
-                [(col_x, sec_y), (col_x + col_w, sec_y + box_h)],
-                radius=10 * scale,
-                fill=(20, 27, 39, 255),
-                outline=(31, 41, 55, 255),
-                width=1 * scale,
-            )
-
-            # Category header
-            draw.text(
-                (col_x + 14 * scale, sec_y + 10 * scale),
-                cat_title,
-                fill=(56, 189, 248, 255),
-                font=get_font(11 * scale, bold=True),
-            )
-
-            # Items inside category
-            for j, item in enumerate(items):
-                iy = sec_y + (32 + j * 34) * scale
-                iname = str(item.get("name", ""))
-                istate = str(item.get("state", ""))
-                istat = str(item.get("status", "ok")).lower()
-                icolor = STATUS_COLORS.get(istat, (148, 163, 184))
-
-                # Item dot
-                draw.ellipse(
-                    [(col_x + 16 * scale, iy + 6 * scale), (col_x + 24 * scale, iy + 14 * scale)],
-                    fill=(*icolor, 255),
+                # Category container
+                draw.rounded_rectangle(
+                    [(col_x, y_pos), (col_x + col_w, y_pos + row_h)],
+                    radius=12 * scale,
+                    fill=(20, 27, 39, 255),
+                    outline=(45, 55, 72, 255),
+                    width=1 * scale,
                 )
-                # Name
+
+                # Category header (Sky 400)
                 draw.text(
-                    (col_x + 32 * scale, iy + 4 * scale),
-                    iname,
-                    fill=(241, 245, 249, 255),
-                    font=get_font(11 * scale),
-                )
-                # State badge text
-                draw.text(
-                    (col_x + col_w - 16 * scale - len(istate) * 7 * scale, iy + 4 * scale),
-                    istate,
-                    fill=(*icolor, 255),
+                    (col_x + 16 * scale, y_pos + 14 * scale),
+                    cat_title,
+                    fill=(56, 189, 248, 255),
                     font=get_font(11 * scale, bold=True),
                 )
+                # Divider line under category header
+                draw.line(
+                    [(col_x + 14 * scale, y_pos + 36 * scale), (col_x + col_w - 14 * scale, y_pos + 36 * scale)],
+                    fill=(37, 48, 67, 255),
+                    width=1 * scale,
+                )
 
-        y_pos += ((len(secs) + 1) // 2 * 170) * scale
+                # Items inside category
+                for j, item in enumerate(items):
+                    iy = y_pos + (44 + j * 38) * scale
+                    iname = str(item.get("name", ""))
+                    istate = str(item.get("state", "")).strip()
+                    istat = str(item.get("status", "ok")).lower()
+                    icolor = STATUS_COLORS.get(istat, (186, 199, 214))
+
+                    # Status indicator dot
+                    draw.ellipse(
+                        [(col_x + 16 * scale, iy + 6 * scale), (col_x + 24 * scale, iy + 14 * scale)],
+                        fill=(*icolor, 255),
+                    )
+                    # Name (Pure crisp white)
+                    draw.text(
+                        (col_x + 32 * scale, iy + 3 * scale),
+                        iname,
+                        fill=(248, 250, 252, 255),
+                        font=get_font(11 * scale),
+                    )
+                    # State pill badge (Bordered, high contrast)
+                    badge_w = (len(istate) * 7 + 16) * scale
+                    badge_x = col_x + col_w - 16 * scale - badge_w
+                    draw.rounded_rectangle(
+                        [(badge_x, iy), (badge_x + badge_w, iy + 20 * scale)],
+                        radius=6 * scale,
+                        fill=(*icolor, 35),
+                        outline=(*icolor, 140),
+                        width=1 * scale,
+                    )
+                    draw.text(
+                        (badge_x + 8 * scale, iy + 3 * scale),
+                        istate,
+                        fill=(*icolor, 255),
+                        font=get_font(10 * scale, bold=True),
+                    )
+
+            y_pos += row_h + 16 * scale
 
     # 6. Executive AI Summary Callout (Bottom)
     if summary:
@@ -380,8 +424,8 @@ def render_infographic(
         draw.rounded_rectangle(
             [(36 * scale, y_pos), (36 * scale + box_w, y_pos + box_h)],
             radius=10 * scale,
-            fill=(30, 41, 59, 160),
-            outline=(51, 65, 85, 255),
+            fill=(24, 32, 47, 240),
+            outline=(56, 189, 248, 120),
             width=1 * scale,
         )
         # Accent bar
@@ -393,7 +437,7 @@ def render_infographic(
         draw.text(
             (56 * scale, y_pos + 16 * scale),
             f"💡  {summary}",
-            fill=(241, 245, 249, 255),
+            fill=(248, 250, 252, 255),
             font=get_font(12 * scale),
         )
 

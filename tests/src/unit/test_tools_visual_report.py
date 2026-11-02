@@ -347,3 +347,58 @@ async def test_ha_generate_infographic_auto_discovery():
     assert struct["sections_count"] >= 1
     mock_ha_client.get_states.assert_called_once()
 
+
+def test_render_infographic_preserves_camera_aspect_ratio():
+    """Verify camera snapshot in render_infographic preserves original aspect ratio."""
+    # Create 16:9 test image (640x360)
+    w_16_9, h_16_9 = 640, 360
+    cam_16_9 = PILImage.new("RGB", (w_16_9, h_16_9), (50, 100, 150))
+    buf_16_9 = io.BytesIO()
+    cam_16_9.save(buf_16_9, format="JPEG")
+    bytes_16_9 = buf_16_9.getvalue()
+
+    png_16_9 = render_infographic(
+        title="16:9 CAMERA TEST",
+        camera_image_bytes=bytes_16_9,
+    )
+    assert png_16_9.startswith(b"\x89PNG")
+    out_16_9 = PILImage.open(io.BytesIO(png_16_9))
+    assert out_16_9.width == 1000
+
+    # Create 4:3 test image (640x480)
+    w_4_3, h_4_3 = 640, 480
+    cam_4_3 = PILImage.new("RGB", (w_4_3, h_4_3), (150, 100, 50))
+    buf_4_3 = io.BytesIO()
+    cam_4_3.save(buf_4_3, format="JPEG")
+    bytes_4_3 = buf_4_3.getvalue()
+
+    png_4_3 = render_infographic(
+        title="4:3 CAMERA TEST",
+        camera_image_bytes=bytes_4_3,
+    )
+    assert png_4_3.startswith(b"\x89PNG")
+    out_4_3 = PILImage.open(io.BytesIO(png_4_3))
+    assert out_4_3.width == 1000
+
+
+@pytest.mark.anyio
+async def test_default_retention_is_one_week():
+    """Verify default retention is 604800 seconds (7 days / 1 week)."""
+    mock_ha = MagicMock()
+    mock_s3 = MagicMock(spec=S3Client)
+    mock_s3.is_configured = True
+    mock_s3.upload_bytes = AsyncMock(return_value={"etag": "mock-etag"})
+    mock_s3.generate_presigned_url = MagicMock(return_value="https://minio.local/test.png")
+    mock_s3.cleanup_expired_objects = AsyncMock(return_value=0)
+
+    tools = VisualReportTools(mock_ha, mock_s3)
+    res = await tools.ha_generate_infographic(
+        kpi_highlights=[{"label": "Test", "value": "1", "status": "ok"}],
+    )
+    assert res.structured_content["expires_in_seconds"] == 604800
+    mock_s3.generate_presigned_url.assert_called_once()
+    assert mock_s3.generate_presigned_url.call_args[1]["expires_in"] == 604800
+    mock_s3.cleanup_expired_objects.assert_called_once_with(
+        prefix="reports/infographics", max_age_seconds=604800
+    )
+

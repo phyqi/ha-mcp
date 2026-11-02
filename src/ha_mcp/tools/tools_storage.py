@@ -214,9 +214,9 @@ class StorageTools(StorageConsumerMixin):
             Field(
                 ge=0,
                 le=604800,
-                description="Expiration in seconds for the presigned URL (default: 3600 = 1 hour, max: 604800 = 7 days). Set to 0 for a direct public URL.",
+                description="Expiration in seconds for the presigned URL (default: 604800 = 7 days / 1 week, max: 604800 = 7 days). Set to 0 for a direct public URL.",
             ),
-        ] = 3600,
+        ] = 604800,
         width: Annotated[
             int | None,
             Field(

@@ -24,7 +24,7 @@ from ha_mcp.tools.helpers import raise_tool_error
 logger = logging.getLogger(__name__)
 
 _DEFAULT_REGION = "us-east-1"
-_DEFAULT_PRESIGNED_TTL = 3600  # 1 hour
+_DEFAULT_PRESIGNED_TTL = 604800  # 7 days (1 week)
 
 
 class S3Client:

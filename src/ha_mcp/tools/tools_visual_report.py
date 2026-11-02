@@ -31,7 +31,18 @@ from ha_mcp.visual_reports.infographic_drawer import render_infographic
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_RETENTION_SECONDS = 3600  # 1 hour
+_DEFAULT_RETENTION_SECONDS = 604800  # 7 days (1 week)
+
+
+def _format_validity(seconds: int) -> str:
+    """Format expiration seconds into human-readable duration."""
+    if seconds >= 86400:
+        days = seconds // 86400
+        return f"{days}d"
+    if seconds >= 3600:
+        hours = seconds // 3600
+        return f"{hours}h"
+    return f"{seconds // 60}m"
 
 
 class VisualReportTools(StorageConsumerMixin):
@@ -126,14 +137,14 @@ class VisualReportTools(StorageConsumerMixin):
         ] = "reports/charts",
         expires_in_seconds: Annotated[
             int,
-            Field(description="Presigned URL expiration in seconds (default: 3600 = 1 hour)."),
+            Field(description="Presigned URL expiration in seconds (default: 604800 = 7 days / 1 week)."),
         ] = _DEFAULT_RETENTION_SECONDS,
         upload_to_storage: Annotated[
             bool,
             Field(description="Whether to upload to MinIO storage if configured."),
         ] = True,
     ) -> ToolResult:
-        """Generate a visual dark-themed time-series chart for sensors, auto-uploaded to MinIO with 1-hour retention."""
+        """Generate a visual dark-themed time-series chart for sensors, auto-uploaded to MinIO with 1-week retention."""
         entity_list = parse_string_list_param(entity_ids)
         if not entity_list:
             raise_tool_error(
@@ -193,7 +204,7 @@ class VisualReportTools(StorageConsumerMixin):
             content=[
                 Image(data=png_bytes, format="png"),
                 f"Generated chart for {len(entity_list)} sensor(s). "
-                + (f"URL (valid {expires_in_seconds // 60}m): {storage_url}" if storage_url else ""),
+                + (f"URL (valid {_format_validity(expires_in_seconds)}): {storage_url}" if storage_url else ""),
             ],
             structured_content=structured_content,
         )
@@ -238,14 +249,14 @@ class VisualReportTools(StorageConsumerMixin):
         ] = "reports/cards",
         expires_in_seconds: Annotated[
             int,
-            Field(description="Presigned URL expiration in seconds (default: 3600 = 1 hour)."),
+            Field(description="Presigned URL expiration in seconds (default: 604800 = 7 days / 1 week)."),
         ] = _DEFAULT_RETENTION_SECONDS,
         upload_to_storage: Annotated[
             bool,
             Field(description="Whether to upload to MinIO storage if configured."),
         ] = True,
     ) -> ToolResult:
-        """Generate a visual status infographic card with optional camera snapshot, auto-uploaded with 1-hour retention.
+        """Generate a visual status infographic card with optional camera snapshot, auto-uploaded with 1-week retention.
 
         When called without 'metrics' or 'entity_ids', this tool automatically scans active Home Assistant entities (climate, lights, security) to generate a complete visual status card.
         """
@@ -351,7 +362,7 @@ class VisualReportTools(StorageConsumerMixin):
             content=[
                 Image(data=png_bytes, format="png"),
                 f"Generated status card '{title}' with {len(items)} metric(s). "
-                + (f"URL (valid {expires_in_seconds // 60}m): {storage_url}" if storage_url else ""),
+                + (f"URL (valid {_format_validity(expires_in_seconds)}): {storage_url}" if storage_url else ""),
             ],
             structured_content=structured_content,
         )
@@ -407,7 +418,7 @@ class VisualReportTools(StorageConsumerMixin):
         ] = "reports/infographics",
         expires_in_seconds: Annotated[
             int,
-            Field(description="Presigned URL expiration in seconds (default: 3600 = 1 hour)."),
+            Field(description="Presigned URL expiration in seconds (default: 604800 = 7 days / 1 week)."),
         ] = _DEFAULT_RETENTION_SECONDS,
         upload_to_storage: Annotated[
             bool,
@@ -505,7 +516,7 @@ class VisualReportTools(StorageConsumerMixin):
             content=[
                 Image(data=png_bytes, format="png"),
                 f"Generated infographic '{title}'. "
-                + (f"URL (valid {expires_in_seconds // 60}m): {storage_url}" if storage_url else ""),
+                + (f"URL (valid {_format_validity(expires_in_seconds)}): {storage_url}" if storage_url else ""),
             ],
             structured_content=structured_content,
         )
