@@ -8,7 +8,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw
 
-from .font_loader import get_font
+from .font_loader import get_font, truncate_text_to_width
 
 # Status colors for infographic elements (vibrant, high-contrast, WCAG-legible)
 STATUS_COLORS = {
@@ -148,15 +148,23 @@ def render_infographic(
     )
 
     # 1. Header Banner
-    draw.text((36 * scale, 28 * scale), title, fill=(255, 255, 255, 255), font=get_font(22 * scale, bold=True))
-    sub = subtitle or datetime.now(UTC).strftime("%A, %d %B %Y • %H:%M UTC")
-    draw.text((36 * scale, 60 * scale), sub, fill=(203, 213, 225, 255), font=get_font(12 * scale))
-
-    # Live Status Badge
     badge_w = 110 * scale
     badge_h = 30 * scale
     badge_x = sw - 36 * scale - badge_w
     badge_y = 34 * scale
+
+    font_title = get_font(22 * scale, bold=True)
+    font_sub = get_font(12 * scale)
+    max_title_w = badge_x - 36 * scale - 20 * scale
+
+    title_to_draw = truncate_text_to_width(draw, title, font_title, max_title_w)
+    draw.text((36 * scale, 28 * scale), title_to_draw, fill=(255, 255, 255, 255), font=font_title)
+
+    sub = subtitle or datetime.now(UTC).strftime("%A, %d %B %Y • %H:%M UTC")
+    sub_to_draw = truncate_text_to_width(draw, sub, font_sub, max_title_w)
+    draw.text((36 * scale, 60 * scale), sub_to_draw, fill=(203, 213, 225, 255), font=font_sub)
+
+    # Live Status Badge
     draw.rounded_rectangle(
         [(badge_x, badge_y), (badge_x + badge_w, badge_y + badge_h)],
         radius=15 * scale,
@@ -265,26 +273,32 @@ def render_infographic(
             )
 
             # Label (Clear high contrast Slate 300)
+            font_k_lbl = get_font(10 * scale, bold=True)
+            k_lbl_txt = truncate_text_to_width(draw, str(k.get("label", "")).upper(), font_k_lbl, card_w - 28 * scale)
             draw.text(
                 (cx + 16 * scale, cy + 12 * scale),
-                str(k.get("label", "")).upper(),
+                k_lbl_txt,
                 fill=(203, 213, 225, 255),
-                font=get_font(10 * scale, bold=True),
+                font=font_k_lbl,
             )
 
             # Large Value (Pure White)
-            val_str = str(k.get("value", ""))
+            font_k_val = get_font(18 * scale, bold=True)
+            val_str = truncate_text_to_width(draw, str(k.get("value", "")), font_k_val, card_w - 28 * scale)
             draw.text(
                 (cx + 16 * scale, cy + 32 * scale),
                 val_str,
                 fill=(255, 255, 255, 255),
-                font=get_font(18 * scale, bold=True),
+                font=font_k_val,
             )
 
             # Badge pill
             badge_txt = str(k.get("badge", "")).upper()
             if badge_txt:
-                bw = (len(badge_txt) * 7 + 16) * scale
+                font_badge_k = get_font(9 * scale, bold=True)
+                bw = int(draw.textlength(badge_txt, font=font_badge_k)) + 16 * scale
+                bw = min(bw, card_w - 32 * scale)
+                badge_txt = truncate_text_to_width(draw, badge_txt, font_badge_k, bw - 16 * scale)
                 draw.rounded_rectangle(
                     [(cx + 16 * scale, cy + 62 * scale), (cx + 16 * scale + bw, cy + 78 * scale)],
                     radius=8 * scale,
@@ -296,7 +310,7 @@ def render_infographic(
                     (cx + 24 * scale, cy + 65 * scale),
                     badge_txt,
                     fill=(*color, 255),
-                    font=get_font(9 * scale, bold=True),
+                    font=font_badge_k,
                 )
 
         y_pos += card_h + 20 * scale
@@ -311,13 +325,21 @@ def render_infographic(
             b_status = str(b.get("status", "ok")).lower()
             b_color = STATUS_COLORS.get(b_status, (56, 189, 248))
 
-            # Text row (High contrast labels)
-            draw.text((36 * scale, y_pos), label, fill=(248, 250, 252, 255), font=get_font(12 * scale, bold=True))
+            # Text row (High contrast labels, measured to avoid collision)
+            font_bar_v = get_font(11 * scale, bold=True)
+            font_bar_lbl = get_font(12 * scale, bold=True)
+            v_w = int(draw.textlength(v_text, font=font_bar_v))
+            v_x = sw - 36 * scale - v_w
+
+            max_bar_lbl_w = v_x - 36 * scale - 16 * scale
+            lbl_to_draw = truncate_text_to_width(draw, label, font_bar_lbl, max_bar_lbl_w)
+
+            draw.text((36 * scale, y_pos), lbl_to_draw, fill=(248, 250, 252, 255), font=font_bar_lbl)
             draw.text(
-                (sw - 36 * scale - len(v_text) * 7 * scale, y_pos),
+                (v_x, y_pos),
                 v_text,
                 fill=(226, 232, 240, 255),
-                font=get_font(11 * scale, bold=True),
+                font=font_bar_v,
             )
 
             # Track bar with subtle outline
@@ -365,11 +387,13 @@ def render_infographic(
                 )
 
                 # Category header (Sky 400)
+                font_cat = get_font(11 * scale, bold=True)
+                cat_title_to_draw = truncate_text_to_width(draw, cat_title, font_cat, col_w - 32 * scale)
                 draw.text(
                     (col_x + 16 * scale, y_pos + 14 * scale),
-                    cat_title,
+                    cat_title_to_draw,
                     fill=(56, 189, 248, 255),
-                    font=get_font(11 * scale, bold=True),
+                    font=font_cat,
                 )
                 # Divider line under category header
                 draw.line(
@@ -379,6 +403,9 @@ def render_infographic(
                 )
 
                 # Items inside category
+                font_item_name = get_font(11 * scale)
+                font_item_badge = get_font(10 * scale, bold=True)
+
                 for j, item in enumerate(items):
                     iy = y_pos + (44 + j * 38) * scale
                     iname = str(item.get("name", ""))
@@ -386,21 +413,26 @@ def render_infographic(
                     istat = str(item.get("status", "ok")).lower()
                     icolor = STATUS_COLORS.get(istat, (186, 199, 214))
 
+                    # State pill badge (Bordered, high contrast)
+                    badge_w = int(draw.textlength(istate, font=font_item_badge)) + 16 * scale
+                    badge_x = col_x + col_w - 16 * scale - badge_w
+
                     # Status indicator dot
                     draw.ellipse(
                         [(col_x + 16 * scale, iy + 6 * scale), (col_x + 24 * scale, iy + 14 * scale)],
                         fill=(*icolor, 255),
                     )
-                    # Name (Pure crisp white)
+
+                    # Name (Pure crisp white, truncated to never overlap badge)
+                    max_iname_w = badge_x - (col_x + 32 * scale) - 12 * scale
+                    iname_to_draw = truncate_text_to_width(draw, iname, font_item_name, max_iname_w)
                     draw.text(
                         (col_x + 32 * scale, iy + 3 * scale),
-                        iname,
+                        iname_to_draw,
                         fill=(248, 250, 252, 255),
-                        font=get_font(11 * scale),
+                        font=font_item_name,
                     )
-                    # State pill badge (Bordered, high contrast)
-                    badge_w = (len(istate) * 7 + 16) * scale
-                    badge_x = col_x + col_w - 16 * scale - badge_w
+
                     draw.rounded_rectangle(
                         [(badge_x, iy), (badge_x + badge_w, iy + 20 * scale)],
                         radius=6 * scale,
@@ -412,7 +444,7 @@ def render_infographic(
                         (badge_x + 8 * scale, iy + 3 * scale),
                         istate,
                         fill=(*icolor, 255),
-                        font=get_font(10 * scale, bold=True),
+                        font=font_item_badge,
                     )
 
             y_pos += row_h + 16 * scale
@@ -434,11 +466,14 @@ def render_infographic(
             radius=3 * scale,
             fill=(56, 189, 248, 255),
         )
+        font_summary = get_font(12 * scale)
+        max_sum_w = box_w - 48 * scale
+        sum_to_draw = truncate_text_to_width(draw, f"💡  {summary}", font_summary, max_sum_w)
         draw.text(
             (56 * scale, y_pos + 16 * scale),
-            f"💡  {summary}",
+            sum_to_draw,
             fill=(248, 250, 252, 255),
-            font=get_font(12 * scale),
+            font=font_summary,
         )
 
     # 7. Supersample Downscale (Lanczos anti-aliasing)

@@ -8,7 +8,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw
 
-from .font_loader import get_font
+from .font_loader import get_font, truncate_text_to_width
 
 # Status badge colors (high-contrast, vibrant, WCAG-legible)
 STATUS_COLORS = {
@@ -90,9 +90,12 @@ def render_status_card(
     font_summary = get_font(12 * scale)
 
     # 1. Header
-    draw.text((36 * scale, 28 * scale), title, fill=(255, 255, 255, 255), font=font_title)
+    max_title_w = sw - 120 * scale - 36 * scale
+    title_to_draw = truncate_text_to_width(draw, title, font_title, max_title_w)
+    draw.text((36 * scale, 28 * scale), title_to_draw, fill=(255, 255, 255, 255), font=font_title)
     sub = subtitle or datetime.now(UTC).strftime("%d %b %Y, %H:%M UTC")
-    draw.text((36 * scale, 58 * scale), sub, fill=(203, 213, 225, 255), font=font_subtitle)
+    sub_to_draw = truncate_text_to_width(draw, sub, font_subtitle, max_title_w)
+    draw.text((36 * scale, 58 * scale), sub_to_draw, fill=(203, 213, 225, 255), font=font_subtitle)
 
     # LIVE pill badge
     draw.rounded_rectangle(
@@ -182,8 +185,9 @@ def render_status_card(
             fill=(*color_rgb, 255),
         )
 
-        label_text = str(m.get("label", ""))
-        val_text = str(m.get("value", ""))
+        max_tile_w = col_w - 40 * scale
+        label_text = truncate_text_to_width(draw, str(m.get("label", "")), font_metric_label, max_tile_w)
+        val_text = truncate_text_to_width(draw, str(m.get("value", "")), font_metric_val, max_tile_w)
 
         draw.text((tile_x + 28 * scale, tile_y + 12 * scale), label_text, fill=(203, 213, 225, 255), font=font_metric_label)
         draw.text((tile_x + 28 * scale, tile_y + 32 * scale), val_text, fill=(255, 255, 255, 255), font=font_metric_val)
@@ -200,7 +204,9 @@ def render_status_card(
             outline=(56, 189, 248, 120),
             width=1 * scale,
         )
-        draw.text((52 * scale, curr_y + 15 * scale), f"📌  {summary}", fill=(248, 250, 252, 255), font=font_summary)
+        max_sum_w = sw - 72 * scale - 40 * scale
+        sum_text = truncate_text_to_width(draw, f"📌  {summary}", font_summary, max_sum_w)
+        draw.text((52 * scale, curr_y + 15 * scale), sum_text, fill=(248, 250, 252, 255), font=font_summary)
 
     final_output = img.resize((width, total_height // scale), Image.Resampling.LANCZOS)
 

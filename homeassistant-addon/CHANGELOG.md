@@ -3,6 +3,13 @@
 <!-- version list -->
 
 
+## v9.3.3 (2026-11-02)
+
+### Fixed
+
+- **reports**: Prevent text collision and overlapping in charts, status cards, and infographics by dynamically measuring available pixel width and truncating long titles, labels, and device names with ellipsis (`...`)
+- **reports**: Right-align chart header summary statistics and dynamically calculate available title space to avoid header overlaps
+
 ## v9.3.2 (2026-11-02)
 
 ### Added

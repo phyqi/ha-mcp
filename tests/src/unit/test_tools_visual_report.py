@@ -16,6 +16,7 @@ from ha_mcp.client.s3_client import S3Client
 from ha_mcp.tools.tools_visual_report import VisualReportTools
 from ha_mcp.visual_reports.card_drawer import render_status_card
 from ha_mcp.visual_reports.chart_drawer import render_sensor_chart
+from ha_mcp.visual_reports.font_loader import get_font, truncate_text_to_width
 from ha_mcp.visual_reports.infographic_drawer import render_infographic
 
 
@@ -401,4 +402,75 @@ async def test_default_retention_is_one_week():
     mock_s3.cleanup_expired_objects.assert_called_once_with(
         prefix="reports/infographics", max_age_seconds=604800
     )
+
+
+def test_truncate_text_to_width():
+    """Verify truncate_text_to_width properly limits character count with ellipsis."""
+    from PIL import ImageDraw
+
+    img = PILImage.new("RGBA", (1000, 100))
+    draw = ImageDraw.Draw(img)
+    font = get_font(20, bold=True)
+
+    # Empty / none cases
+    assert truncate_text_to_width(draw, "", font, 500) == ""
+    assert truncate_text_to_width(draw, None, font, 500) == ""
+    assert truncate_text_to_width(draw, "Hello", font, 0) == ""
+
+    # Text that fits within width is returned unchanged
+    short_text = "Home Report"
+    assert truncate_text_to_width(draw, short_text, font, 500) == short_text
+
+    # Long text is truncated and ends with ellipsis
+    long_text = "Grafik Penggunaan Energi - Mac M2 Pro untuk CI Machine (7 Hari Terakhir)"
+    max_w = 200
+    res = truncate_text_to_width(draw, long_text, font, max_w)
+    assert res.endswith("...")
+    assert len(res) < len(long_text)
+    # Measured width must not exceed max_w
+    assert draw.textlength(res, font=font) <= max_w
+
+
+def test_chart_drawer_prevents_header_overlap():
+    """Verify render_sensor_chart dynamically limits title length to avoid stats collision."""
+    now = datetime.now(UTC).timestamp()
+    series = [
+        {
+            "name": "Smart Plug - Mac M2 Pro for CI Machine Energy",
+            "unit": "kWh",
+            "points": [(now - 3600, 0.05), (now, 0.12)],
+        }
+    ]
+    # Long title matching the user screenshot
+    png = render_sensor_chart(
+        series=series,
+        title="Grafik Penggunaan Energi - Mac M2 Pro (7 Hari)",
+        subtitle="02 Nov 2026, 10:48 UTC • 168 Hours Lookback",
+    )
+    assert png.startswith(b"\x89PNG")
+    img = PILImage.open(io.BytesIO(png))
+    assert img.size == (1000, 560)
+
+
+def test_infographic_drawer_prevents_item_overlap():
+    """Verify render_infographic measures and truncates item names to avoid badge collision."""
+    png = render_infographic(
+        title="Infografis Status Rumah Sangat Panjang Sekali untuk Uji Coba Truncation",
+        sections=[
+            {
+                "category": "Daya & Energi Komputasi",
+                "items": [
+                    {
+                        "name": "Smart Plug - Mac M2 Pro for CI Machine Energy and Monitoring Long Name",
+                        "state": "Aktif 150W",
+                        "status": "on",
+                    }
+                ],
+            }
+        ],
+    )
+    assert png.startswith(b"\x89PNG")
+    img = PILImage.open(io.BytesIO(png))
+    assert img.width == 1000
+
 

@@ -8,7 +8,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw
 
-from .font_loader import get_font
+from .font_loader import get_font, truncate_text_to_width
 
 # Curated modern palette for dark theme
 PALETTE = [
@@ -50,13 +50,46 @@ def render_sensor_chart(
     font_labels = get_font(11 * scale)
     font_stats = get_font(12 * scale, bold=True)
 
-    # 1. Header (Title & Subtitle)
-    draw.text((36 * scale, 28 * scale), title, fill=(255, 255, 255, 255), font=font_title)
-    sub = subtitle or datetime.now(UTC).strftime("%d %b %Y, %H:%M UTC")
-    draw.text((36 * scale, 58 * scale), sub, fill=(203, 213, 225, 255), font=font_subtitle)
-
     # Filter out series with empty points
     valid_series = [s for s in series if s.get("points")]
+
+    # Calculate summary stats for the primary series upfront
+    primary_stats: dict[str, Any] = {}
+    if valid_series and valid_series[0].get("points"):
+        pts0 = valid_series[0]["points"]
+        vals0 = [v for _, v in pts0]
+        if vals0:
+            primary_stats = {
+                "current": vals0[-1],
+                "min": min(vals0),
+                "max": max(vals0),
+                "avg": sum(vals0) / len(vals0),
+                "unit": valid_series[0].get("unit", ""),
+            }
+
+    # 1. Header (Title, Subtitle & Measured Stats Pills)
+    stat_text = ""
+    stat_x = sw - 36 * scale
+    if primary_stats:
+        u = primary_stats["unit"]
+        cur_str = f"Now: {primary_stats['current']:.1f}{u}"
+        min_str = f"Min: {primary_stats['min']:.1f}{u}"
+        max_str = f"Max: {primary_stats['max']:.1f}{u}"
+        avg_str = f"Avg: {primary_stats['avg']:.1f}{u}"
+        stat_text = f"{cur_str} | {min_str} | {max_str} | {avg_str}"
+        stat_w = int(draw.textlength(stat_text, font=font_stats))
+        stat_x = sw - 36 * scale - stat_w
+
+    max_title_w = (stat_x - 36 * scale - 24 * scale) if stat_text else (sw - 72 * scale)
+    title_to_draw = truncate_text_to_width(draw, title, font_title, max_title_w)
+    draw.text((36 * scale, 28 * scale), title_to_draw, fill=(255, 255, 255, 255), font=font_title)
+
+    sub = subtitle or datetime.now(UTC).strftime("%d %b %Y, %H:%M UTC")
+    sub_to_draw = truncate_text_to_width(draw, sub, font_subtitle, max_title_w)
+    draw.text((36 * scale, 58 * scale), sub_to_draw, fill=(203, 213, 225, 255), font=font_subtitle)
+
+    if stat_text:
+        draw.text((stat_x, 34 * scale), stat_text, fill=(56, 189, 248, 255), font=font_stats)
 
     # Plot margins
     plot_left = 75 * scale
@@ -164,39 +197,25 @@ def render_sensor_chart(
         draw.ellipse([(last_x - 6 * scale, last_y - 6 * scale), (last_x + 6 * scale, last_y + 6 * scale)], fill=(*color_rgb, 255))
         draw.ellipse([(last_x - 3 * scale, last_y - 3 * scale), (last_x + 3 * scale, last_y + 3 * scale)], fill=(255, 255, 255, 255))
 
-        if idx == 0:
-            vals = [v for _, v in pts]
-            primary_stats = {
-                "current": vals[-1],
-                "min": min(vals),
-                "max": max(vals),
-                "avg": sum(vals) / len(vals),
-                "unit": s.get("unit", ""),
-            }
-
-    # 5. Header Summary Stats Pills (Top Right)
-    if primary_stats:
-        u = primary_stats["unit"]
-        cur_str = f"Now: {primary_stats['current']:.1f}{u}"
-        min_str = f"Min: {primary_stats['min']:.1f}{u}"
-        max_str = f"Max: {primary_stats['max']:.1f}{u}"
-        avg_str = f"Avg: {primary_stats['avg']:.1f}{u}"
-        stat_text = f"{cur_str}   |   {min_str}   |   {max_str}   |   {avg_str}"
-        draw.text((sw - 480 * scale, 34 * scale), stat_text, fill=(56, 189, 248, 255), font=font_stats)
-
-    # 6. Legend at bottom
+    # 5. Legend at bottom
     legend_x = plot_left
     legend_y = sh - 32 * scale
     for idx, s in enumerate(valid_series):
         c_rgb = PALETTE[idx % len(PALETTE)]
+        legend_label = s.get("name") or s.get("entity_id", f"Series {idx + 1}")
+        avail_w = plot_right - legend_x - 24 * scale
+        if avail_w < 40 * scale:
+            break
+        legend_label = truncate_text_to_width(draw, legend_label, font_labels, avail_w)
+        lbl_w = int(draw.textlength(legend_label, font=font_labels))
+
         draw.rounded_rectangle(
             [(legend_x, legend_y), (legend_x + 14 * scale, legend_y + 14 * scale)],
             radius=4 * scale,
             fill=(*c_rgb, 255),
         )
-        legend_label = s.get("name") or s.get("entity_id", f"Series {idx + 1}")
         draw.text((legend_x + 20 * scale, legend_y), legend_label, fill=(203, 213, 225, 255), font=font_labels)
-        legend_x += (len(legend_label) * 8 + 40) * scale
+        legend_x += lbl_w + 36 * scale
 
     # Downscale for crisp anti-aliasing
     final_output = img.resize((width, height), Image.Resampling.LANCZOS)

@@ -5,7 +5,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PIL import ImageFont
+from typing import Any
+
+from PIL import ImageDraw, ImageFont
 
 _BUNDLED_FONTS_DIR = Path(__file__).parent / "fonts"
 
@@ -39,4 +41,53 @@ def get_font(size: int = 14, bold: bool = False) -> ImageFont.FreeTypeFont | Ima
         return ImageFont.load_default(size=size)
     except TypeError:
         return ImageFont.load_default()
+
+
+def truncate_text_to_width(
+    draw: ImageDraw.ImageDraw,
+    text: str | None,
+    font: Any,
+    max_width: int | float,
+    ellipsis: str = "...",
+) -> str:
+    """Measure text and truncate with ellipsis if it exceeds max_width in pixels."""
+    if not text:
+        return ""
+    if max_width <= 0:
+        return ""
+
+    try:
+        current_len = draw.textlength(text, font=font)
+    except Exception:  # noqa: BLE001
+        current_len = len(text) * 10
+    if current_len <= max_width:
+        return text
+
+    try:
+        ellipsis_len = draw.textlength(ellipsis, font=font)
+    except Exception:  # noqa: BLE001
+        ellipsis_len = len(ellipsis) * 10
+    if ellipsis_len >= max_width:
+        return ellipsis if ellipsis_len == max_width else ""
+
+    low = 1
+    high = len(text)
+    best = ellipsis
+
+    while low <= high:
+        mid = (low + high) // 2
+        candidate = text[:mid] + ellipsis
+        try:
+            cand_len = draw.textlength(candidate, font=font)
+        except Exception:  # noqa: BLE001
+            cand_len = len(candidate) * 10
+
+        if cand_len <= max_width:
+            best = candidate
+            low = mid + 1
+        else:
+            high = mid - 1
+
+    return best
+
 
