@@ -83,11 +83,12 @@ For an accepted inline finding, implement the fix, reply with evidence, resolve 
 
 ## Git & PR Policies
 
+- MANDATORY USER APPROVAL: Never run `git commit`, `git push`, tag releases, or publish to GitHub Container Registry (GHCR) / dispatch publishing workflows without prior explicit user approval.
 - Never commit directly to `master` or `main` except for a documentation-only adjustment.
 - Never push or open a pull request without explicit user permission.
 - Open every pull request as a draft. Mark it ready only when explicitly asked, after refreshing its description and verifying required CI and reviews.
 - A maintainer slash command authorizes the [slash lifecycle](docs/agents/slash-agent.md) through readiness, including review replies and thread resolution. It never authorizes merging or requesting reviewers.
-- Never merge, close, delete branches, publish, release, or otherwise finalize work without explicit approval for that exact action.
+- Never merge, close, delete branches, publish to GHCR/PyPI, release, or otherwise finalize work without explicit approval for that exact action.
 - Preserve the pull-request template headings and generated review sections.
 - Make routine, reversible implementation decisions autonomously. Ask before a choice materially changes scope, public behavior, architecture, or review surface; do not create competing pull requests without approval.
 - Choose for long-term codebase health, not implementation speed; maintainability-improving refactors are valid when they fit the user's scope.
@@ -118,9 +119,8 @@ Leave touched code better than you found it. Fix-in-place is the default, but th
 | Mid-sized or meaningfully expands the diff | Pause before pushing and ask whether to bundle it. |
 | Large, unrelated, or a different subsystem | Explain the scope change and ask; do not silently defer or expand. |
 
-About 200 changed lines is a should-I-ask heuristic, not a bundling cap. Work
-of any size may stay in the pull request when it is not grossly out of scope;
-estimate honestly and do not inflate the estimate to justify deferral.
+About 200 changed lines is a heuristic, not a cap. Work may stay in the
+pull request when not grossly out of scope; estimate honestly.
 
 Never create a follow-up issue or pull request without explicit approval.
 Before proposing one, the work must not be achievable by mirroring a nearby
@@ -132,12 +132,10 @@ conditions fails, fix it now or let it go—do not file an issue merely to
 converted into backlog noise.
 
 Do not use “out of scope,” “non-blocking,” “post-merge follow-up,” “nice to
-have,” “pre-existing,” or similar phrasing to hide a legitimate current
-finding. This list is non-exhaustive: match the intent, and remember that
-pre-existing problems are the point of the Boy Scout rule. Scope is the
-user's call: state the finding and ask explicitly, with the specific reason,
-before deferring or dropping it: “I think this is out of scope because [X].
-Fix here or defer?”
+have,” or “pre-existing” to hide a current finding. Scope is the user's
+call: state the finding and ask explicitly with the specific reason before
+deferring or dropping it: “I think this is out of scope because [X]. Fix
+here or defer?”
 
 ## CI/CD Workflows
 
